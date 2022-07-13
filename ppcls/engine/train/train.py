@@ -16,12 +16,16 @@ from __future__ import absolute_import, division, print_function
 import time
 import paddle
 from ppcls.engine.train.utils import update_loss, update_metric, log_info
-from ppcls.utils import profiler
+from ppcls.utils import profiler, logger
 
 
 def train_epoch(engine, epoch_id, print_batch_step):
     tic = time.time()
     for iter_id, batch in enumerate(engine.train_dataloader):
+        if not engine.model.training:
+            engine.model.train()
+            logger.info(f"turn training on at epoch [{iter_id}]/[{epoch_id}]")
+
         if iter_id >= engine.max_iter:
             break
         profiler.add_profiler_step(engine.config["profiler_options"])

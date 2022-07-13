@@ -93,6 +93,72 @@ class HybridTrainPipe(Pipeline):
     def __len__(self):
         return self.epoch_size("Reader")
 
+class HybridTrainPipe_New(Pipeline):
+    def __init__(self,
+                 file_root,
+                 file_list,
+                 batch_size,
+                 resize_shorter,
+                 crop,
+                 min_area,
+                 lower,
+                 upper,
+                 interp,
+                 mean,
+                 std,
+                 device_id,
+                 shard_id=0,
+                 num_shards=1,
+                 random_shuffle=True,
+                 num_threads=4,
+                 seed=42,
+                 pad_output=False,
+                 output_dtype=types.FLOAT,
+                 dataset='Train'):
+        super(HybridTrainPipe_New, self).__init__(
+            batch_size, num_threads, device_id, seed=seed)
+        self.input = ops.readers.File(
+            file_root=file_root,
+            file_list=file_list,
+            shard_id=shard_id,
+            num_shards=num_shards,
+            random_shuffle=random_shuffle)
+        # set internal nvJPEG buffers size to handle full-sized ImageNet images
+        # without additional reallocations
+        device_memory_padding = 211025920
+        host_memory_padding = 140544512
+        self.decode = ops.decoders.ImageRandomCrop(
+            device='mixed',
+            output_type=types.DALIImageType.RGB,
+            device_memory_padding=device_memory_padding,
+            host_memory_padding=host_memory_padding,
+            random_aspect_ratio=[lower, upper],
+            random_area=[min_area, 1.0],
+            num_attempts=100)
+        self.res = ops.Resize(
+            device='gpu', resize_x=crop, resize_y=crop, interp_type=interp)
+        self.cmnp = ops.CropMirrorNormalize(
+            device="gpu",
+            dtype=output_dtype,
+            output_layout='CHW',
+            crop=(crop, crop),
+            mean=mean,
+            std=std,
+            pad_output=pad_output)
+        self.coin = ops.random.CoinFlip(probability=0.5)
+        self.to_int64 = ops.Cast(dtype=types.DALIDataType.INT64, device="gpu")
+
+    def define_graph(self):
+        rng = self.coin()
+        jpegs, labels = self.input(name="Reader")
+        images = self.decode(jpegs)
+        images = self.res(images)
+        output = self.cmnp(images.gpu(), mirror=rng)
+        return [output, self.to_int64(labels.gpu())]
+
+    def __len__(self):
+        return self.epoch_size("Reader")
+
 
 class HybridValPipe(Pipeline):
     def __init__(self,

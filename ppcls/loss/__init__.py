@@ -30,7 +30,9 @@ from .afdloss import AFDLoss
 from .deephashloss import DSHSDLoss
 from .deephashloss import LCDSHLoss
 from .deephashloss import DCHLoss
-
+from .weightedtriplet import WeightedRegularizedTriplet
+from .costriplet import TripletLossV2_cos
+from .softtriple import SoftTriple
 
 class CombinedLoss(nn.Layer):
     def __init__(self, config_list):

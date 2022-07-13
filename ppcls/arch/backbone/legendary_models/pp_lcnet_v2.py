@@ -1,5 +1,4 @@
 # copyright (c) 2022 PaddlePaddle Authors. All Rights Reserve.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -23,6 +22,7 @@ from paddle.regularizer import L2Decay
 from paddle.nn.initializer import KaimingNormal
 from ppcls.arch.backbone.base.theseus_layer import TheseusLayer
 from ppcls.utils.save_load import load_dygraph_pretrain, load_dygraph_pretrain_from_url
+from ppcls.utils import logger
 
 MODEL_URLS = {
     "PPLCNetV2_base":
@@ -126,7 +126,7 @@ class RepDepthwiseSeparable(TheseusLayer):
                  use_shortcut=False):
         super().__init__()
         self.is_repped = False
-
+        # print(f"stride={stride}")
         self.dw_size = dw_size
         self.split_pw = split_pw
         self.use_rep = use_rep
@@ -249,6 +249,7 @@ class PPLCNetV2(TheseusLayer):
     def __init__(self,
                  scale,
                  depths,
+                 last_stride=2,
                  class_num=1000,
                  dropout_prob=0,
                  use_last_conv=True,
@@ -257,6 +258,7 @@ class PPLCNetV2(TheseusLayer):
         self.scale = scale
         self.use_last_conv = use_last_conv
         self.class_expand = class_expand
+        self.last_stride = last_stride
 
         self.stem = nn.Sequential(* [
             ConvBNLayer(
@@ -281,7 +283,7 @@ class PPLCNetV2(TheseusLayer):
                         in_channels=make_divisible((in_channels if i == 0 else
                                                     in_channels * 2) * scale),
                         out_channels=make_divisible(in_channels * 2 * scale),
-                        stride=2 if i == 0 else 1,
+                        stride=2 if i == 0 and depth_idx != len(NET_CONFIG) - 1 else self.last_stride if i == 0 and depth_idx == len(NET_CONFIG) - 1 else 1,
                         dw_size=kernel_size,
                         split_pw=split_pw,
                         use_rep=use_rep,
@@ -289,6 +291,9 @@ class PPLCNetV2(TheseusLayer):
                         use_shortcut=use_shortcut)
                     for i in range(depths[depth_idx])
                 ]))
+        # last stride
+        if last_stride == 1:
+            logger.info(f"{'=' * 10} Using last_stride=1(set pplcnet.laststride to 1)")
 
         self.avg_pool = AdaptiveAvgPool2D(1)
 

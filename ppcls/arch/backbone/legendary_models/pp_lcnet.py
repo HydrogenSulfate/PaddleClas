@@ -21,7 +21,9 @@ from paddle.nn import AdaptiveAvgPool2D, BatchNorm2D, Conv2D, Dropout, Linear
 from paddle.regularizer import L2Decay
 from paddle.nn.initializer import KaimingNormal
 from ppcls.arch.backbone.base.theseus_layer import TheseusLayer
+from ppcls.arch.backbone.base.theseus_layer import RCCAModule, GeneralizedMeanPooling, GeneralizedMeanPoolingP, RGAModule
 from ppcls.utils.save_load import load_dygraph_pretrain, load_dygraph_pretrain_from_url
+from ppcls.utils import logger
 
 MODEL_URLS = {
     "PPLCNet_x0_25":
@@ -84,7 +86,8 @@ class ConvBNLayer(TheseusLayer):
                  num_filters,
                  stride,
                  num_groups=1,
-                 lr_mult=1.0):
+                 lr_mult=1.0,
+                 use_ibn_b=False):
         super().__init__()
 
         self.conv = Conv2D(
@@ -101,11 +104,16 @@ class ConvBNLayer(TheseusLayer):
             num_filters,
             weight_attr=ParamAttr(regularizer=L2Decay(0.0), learning_rate=lr_mult),
             bias_attr=ParamAttr(regularizer=L2Decay(0.0), learning_rate=lr_mult))
+        self.use_ibn_b = use_ibn_b
+        if use_ibn_b:
+            self.InstanceNorm = nn.InstanceNorm2D(num_filters)
         self.hardswish = nn.Hardswish()
 
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
+        if self.use_ibn_b:
+            x = self.InstanceNorm(x)
         x = self.hardswish(x)
         return x
 
@@ -117,7 +125,8 @@ class DepthwiseSeparable(TheseusLayer):
                  stride,
                  dw_size=3,
                  use_se=False,
-                 lr_mult=1.0):
+                 lr_mult=1.0,
+                 use_ibn_b=False):
         super().__init__()
         self.use_se = use_se
         self.dw_conv = ConvBNLayer(
@@ -135,7 +144,8 @@ class DepthwiseSeparable(TheseusLayer):
             filter_size=1,
             num_filters=num_filters,
             stride=1,
-            lr_mult=lr_mult)
+            lr_mult=lr_mult,
+            use_ibn_b=use_ibn_b)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -189,8 +199,65 @@ class PPLCNet(TheseusLayer):
                  lr_mult_list=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
                  use_last_conv=True,
                  return_patterns=None,
-                 return_stages=None):
+                 return_stages=None,
+                 # 下方为新增的模型调优相关参数
+                 last_stride=2,     # last_stride
+                 use_cc=False,      # Criss-Cross Attention
+                 cc_after=6,        # Insert Criss-Cross Attention after `cc_after` blocks
+                 use_gem=False,     # GeneralizedMeanPooling
+                 use_gemp=False,    # GeneralizedMeanPoolingP
+                 pnorm=1.1,
+                 use_rga=False,     # Relation-Aware Global Attention
+                 use_ibn_b=False,   # IBN-Net type B
+                 ibn_act_list=[3, 4, 5, 6]  # IBN-Net type B
+    ):
         super().__init__()
+
+        # last stride
+        if last_stride == 1:
+            assert NET_CONFIG["blocks6"][-2][-2] != 1, \
+                "last stride已经是1无需设置"
+            NET_CONFIG["blocks6"][-2][-2] = 1
+            logger.info(f"{'=' * 10} Using last_stride=1(set block6.conv1.stride to 1)")
+
+        # Criss-Cross Attention
+        self.use_cc = use_cc
+        if use_cc:
+            self.cc_after = cc_after
+            logger.info(f"{'=' * 10} Using Criss-Cross Attention")
+            self.cc_att = RCCAModule(
+                in_channels=make_divisible(NET_CONFIG[f"blocks{self.cc_after}"][-1][2] * scale),
+                inter_channels=make_divisible(NET_CONFIG[f"blocks{self.cc_after}"][-1][2] * scale)//4,
+                reduction=8,
+                recurrence=2
+            )
+
+        # Relation-Aware Global Attention
+        self.use_rga = use_rga
+        if use_rga:
+            logger.info(f"{'=' * 10} Using Relation-Aware Global Attention")
+            h, w = 256, 128
+            down_fac = {
+                3: 4,
+                4: 8,
+                5: 16,
+                6: 16
+            }
+            self.rga_modules = nn.LayerList([
+                RGAModule(
+                    in_channel=make_divisible(NET_CONFIG[f"blocks{_i}"][0][2] * scale),
+                    in_spatial=(h//down_fac[_i])*(w//down_fac[_i]),
+                    use_spatial=True,
+                    use_channel=True,
+                    cha_ratio=8,
+                    spa_ratio=8,
+                    down_ratio=8
+                )
+                for _i in [3, 4, 5, 6]
+            ])
+        self.use_ibn_b = use_ibn_b
+        if use_ibn_b:
+            logger.info(f"{'=' * 10} Using IBN-B, and ibn_act_list = {ibn_act_list}")
         self.scale = scale
         self.class_expand = class_expand
         self.lr_mult_list = lr_mult_list
@@ -220,7 +287,8 @@ class PPLCNet(TheseusLayer):
                 dw_size=k,
                 stride=s,
                 use_se=se,
-                lr_mult=self.lr_mult_list[1])
+                lr_mult=self.lr_mult_list[1],
+                use_ibn_b=(use_ibn_b is True) and (2 in ibn_act_list))
             for i, (k, in_c, out_c, s, se) in enumerate(NET_CONFIG["blocks2"])
         ])
 
@@ -231,7 +299,8 @@ class PPLCNet(TheseusLayer):
                 dw_size=k,
                 stride=s,
                 use_se=se,
-                lr_mult=self.lr_mult_list[2])
+                lr_mult=self.lr_mult_list[2],
+                use_ibn_b=(use_ibn_b is True) and (3 in ibn_act_list))
             for i, (k, in_c, out_c, s, se) in enumerate(NET_CONFIG["blocks3"])
         ])
 
@@ -242,7 +311,8 @@ class PPLCNet(TheseusLayer):
                 dw_size=k,
                 stride=s,
                 use_se=se,
-                lr_mult=self.lr_mult_list[3])
+                lr_mult=self.lr_mult_list[3],
+                use_ibn_b=(use_ibn_b is True) and (4 in ibn_act_list))
             for i, (k, in_c, out_c, s, se) in enumerate(NET_CONFIG["blocks4"])
         ])
 
@@ -253,7 +323,8 @@ class PPLCNet(TheseusLayer):
                 dw_size=k,
                 stride=s,
                 use_se=se,
-                lr_mult=self.lr_mult_list[4])
+                lr_mult=self.lr_mult_list[4],
+                use_ibn_b=(use_ibn_b is True) and (5 in ibn_act_list))
             for i, (k, in_c, out_c, s, se) in enumerate(NET_CONFIG["blocks5"])
         ])
 
@@ -269,6 +340,17 @@ class PPLCNet(TheseusLayer):
         ])
 
         self.avg_pool = AdaptiveAvgPool2D(1)
+        # GeneralizedMeanPooling
+        self.use_gem = use_gem
+        if use_gem:
+            logger.info(f"{'=' * 10} Using GeneralizedMeanPooling")
+            self.avg_pool = GeneralizedMeanPooling(norm=3)
+
+        # GeneralizedMeanPoolingP
+        self.use_gemp = use_gemp
+        if use_gemp:
+            logger.info(f"{'=' * 10} Using GeneralizedMeanPoolingP(norm={pnorm})")
+            self.avg_pool = GeneralizedMeanPoolingP(norm=pnorm)
         if self.use_last_conv:
             self.last_conv = Conv2D(
                 in_channels=make_divisible(NET_CONFIG["blocks6"][-1][2] * scale),
@@ -290,13 +372,35 @@ class PPLCNet(TheseusLayer):
             return_stages=return_stages)
 
     def forward(self, x):
-        x = self.conv1(x)
+        x = self.conv1(x)  # 256x128
 
-        x = self.blocks2(x)
-        x = self.blocks3(x)
-        x = self.blocks4(x)
-        x = self.blocks5(x)
-        x = self.blocks6(x)
+        x = self.blocks2(x)  # 128x64
+        if self.use_cc and self.cc_after == 2:
+            x = self.cc_att(x)
+
+        x = self.blocks3(x)  # 64x32
+        if self.use_cc and self.cc_after == 3:
+            x = self.cc_att(x)
+        if self.use_rga:
+            x = self.rga_modules[0](x)
+
+        x = self.blocks4(x)  # 32x16
+        if self.use_cc and self.cc_after == 4:
+            x = self.cc_att(x)
+        if self.use_rga:
+            x = self.rga_modules[1](x)
+
+        x = self.blocks5(x)  # 16x8
+        if self.use_cc and self.cc_after == 5:
+            x = self.cc_att(x)
+        if self.use_rga:
+            x = self.rga_modules[2](x)
+
+        x = self.blocks6(x)  # 16x8
+        if self.use_cc and self.cc_after == 6:
+            x = self.cc_att(x)
+        if self.use_rga:
+            x = self.rga_modules[3](x)
 
         x = self.avg_pool(x)
         if self.last_conv is not None:

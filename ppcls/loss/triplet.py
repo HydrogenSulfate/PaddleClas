@@ -18,6 +18,7 @@ from __future__ import print_function
 
 import paddle
 import paddle.nn as nn
+from ppcls.utils import logger
 
 
 class TripletLossV2(nn.Layer):
@@ -26,17 +27,20 @@ class TripletLossV2(nn.Layer):
     code reference: https://github.com/okzhili/Cartoon-face-recognition/blob/master/loss/triplet_loss.py
     Args:
         margin (float): margin for triplet.
+        softmargin (bool): use log(1+e(x)) instead of hingle loss
     """
 
     def __init__(self,
                  margin=0.5,
                  normalize_feature=True,
-                 feature_from="features"):
+                 feature_from="features",
+                 softmargin=False):
         super(TripletLossV2, self).__init__()
         self.margin = margin
         self.feature_from = feature_from
         self.ranking_loss = paddle.nn.loss.MarginRankingLoss(margin=margin)
         self.normalize_feature = normalize_feature
+        self.softmargin = softmargin
 
     def forward(self, input, target):
         """
@@ -76,25 +80,32 @@ class TripletLossV2(nn.Layer):
         dist_an, relative_n_inds = paddle.min(
             paddle.reshape(dist[is_neg], (bs, -1)), axis=1, keepdim=True)
         '''
-        dist_ap = paddle.max(paddle.reshape(
-            paddle.masked_select(dist, is_pos), (bs, -1)),
-                             axis=1,
-                             keepdim=True)
-        # `dist_an` means distance(anchor, negative)
-        # both `dist_an` and `relative_n_inds` with shape [N, 1]
-        dist_an = paddle.min(paddle.reshape(
-            paddle.masked_select(dist, is_neg), (bs, -1)),
-                             axis=1,
-                             keepdim=True)
-        # shape [N]
-        dist_ap = paddle.squeeze(dist_ap, axis=1)
-        dist_an = paddle.squeeze(dist_an, axis=1)
+        try:
+            dist_ap = paddle.max(paddle.reshape(
+                paddle.masked_select(dist, is_pos), (bs, -1)),
+                                axis=1,
+                                keepdim=True)
+            # `dist_an` means distance(anchor, negative)
+            # both `dist_an` and `relative_n_inds` with shape [N, 1]
+            dist_an = paddle.min(paddle.reshape(
+                paddle.masked_select(dist, is_neg), (bs, -1)),
+                                axis=1,
+                                keepdim=True)
+            # shape [N]
+            dist_ap = paddle.squeeze(dist_ap, axis=1)
+            dist_an = paddle.squeeze(dist_an, axis=1)
 
-        # Compute ranking hinge loss
-        y = paddle.ones_like(dist_an)
-        loss = self.ranking_loss(dist_an, dist_ap, y)
-        return {"TripletLossV2": loss}
-
+            # Compute ranking hinge loss
+            y = paddle.ones_like(dist_an)
+            if self.softmargin:
+                loss = nn.functional.softplus(dist_ap - dist_an).mean()
+            else:
+                loss = self.ranking_loss(dist_an, dist_ap, y)
+            return {"TripletLossV2": loss}
+        except Exception as e:
+            logger.info(e)
+            logger.info(target)
+            exit(0)
 
 class TripletLoss(nn.Layer):
     """Triplet loss with hard positive/negative mining.

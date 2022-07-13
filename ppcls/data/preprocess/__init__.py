@@ -26,6 +26,9 @@ from ppcls.data.preprocess.ops.operators import ResizeImage
 from ppcls.data.preprocess.ops.operators import CropImage
 from ppcls.data.preprocess.ops.operators import RandCropImage
 from ppcls.data.preprocess.ops.operators import RandCropImageV2
+from ppcls.data.preprocess.ops.operators import RawColorJitter
+from ppcls.data.preprocess.ops.operators import RandomRotation
+from ppcls.data.preprocess.ops.operators import ChannelShuffle
 from ppcls.data.preprocess.ops.operators import RandFlipImage
 from ppcls.data.preprocess.ops.operators import NormalizeImage
 from ppcls.data.preprocess.ops.operators import ToCHWImage

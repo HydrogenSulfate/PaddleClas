@@ -91,6 +91,7 @@ class Engine(object):
             if not os.path.exists(vdl_writer_path):
                 os.makedirs(vdl_writer_path)
             self.vdl_writer = LogWriter(logdir=vdl_writer_path)
+        sampler_name = self.config["DataLoader"]["Train"]["sampler"]["name"]
 
         # set device
         assert self.config["Global"][
@@ -112,8 +113,9 @@ class Engine(object):
         self.config["DataLoader"].update({"class_num": class_num})
         # build dataloader
         if self.mode == 'train':
-            self.train_dataloader = build_dataloader(
-                self.config["DataLoader"], "Train", self.device, self.use_dali)
+            if sampler_name != "GraphSampler":
+                self.train_dataloader = build_dataloader(
+                    self.config["DataLoader"], "Train", self.device, self.use_dali)
         if self.mode == "eval" or (self.mode == "train" and
                                    self.config["Global"]["eval_during_train"]):
             if self.eval_mode in ["classification", "adaface"]:
@@ -191,6 +193,10 @@ class Engine(object):
 
         # build model
         self.model = build_model(self.config, self.mode)
+        if sampler_name == "GraphSampler":
+            self.train_dataloader = build_dataloader(
+                self.config["DataLoader"], "Train", self.device, self.use_dali, model=self.model, test_transform_ops=self.query_dataloader.dataset.get_transform_ops())
+            logger.info(f"{'=' * 10} Using GraphSampler, rebuild train_dataloader success")
         # set @to_static for benchmark, skip this by default.
         apply_to_static(self.config, self.model)
 
@@ -229,7 +235,9 @@ class Engine(object):
                 "use_dynamic_loss_scaling", False)
             self.scaler = paddle.amp.GradScaler(
                 init_loss_scaling=self.scale_loss,
-                use_dynamic_loss_scaling=self.use_dynamic_loss_scaling)
+                use_dynamic_loss_scaling=self.use_dynamic_loss_scaling,
+                incr_every_n_steps=2000,
+                decr_every_n_nan_or_inf=1)
 
             self.amp_level = self.config['AMP'].get("level", "O1")
             if self.amp_level not in ["O1", "O2"]:

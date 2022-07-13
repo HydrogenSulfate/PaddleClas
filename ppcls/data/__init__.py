@@ -24,18 +24,19 @@ from ppcls.data import dataloader
 from ppcls.data.dataloader.imagenet_dataset import ImageNetDataset
 from ppcls.data.dataloader.multilabel_dataset import MultiLabelDataset
 from ppcls.data.dataloader.common_dataset import create_operators
-from ppcls.data.dataloader.vehicle_dataset import CompCars, VeriWild
+from ppcls.data.dataloader.vehicle_dataset import CompCars, VeriWild, VeriWild_New
 from ppcls.data.dataloader.logo_dataset import LogoDataset
 from ppcls.data.dataloader.icartoon_dataset import ICartoonDataset
 from ppcls.data.dataloader.mix_dataset import MixDataset
 from ppcls.data.dataloader.multi_scale_dataset import MultiScaleDataset
-from ppcls.data.dataloader.person_dataset import Market1501, MSMT17
+from ppcls.data.dataloader.person_dataset import Market1501, MSMT17, Shitu
 from ppcls.data.dataloader.face_dataset import FiveValidationDataset, AdaFaceDataset
 
 
 # sampler
 from ppcls.data.dataloader.DistributedRandomIdentitySampler import DistributedRandomIdentitySampler
 from ppcls.data.dataloader.pk_sampler import PKSampler
+from ppcls.data.dataloader.graph_sampler import GraphSampler
 from ppcls.data.dataloader.mix_sampler import MixSampler
 from ppcls.data.dataloader.multi_scale_sampler import MultiScaleSampler
 from ppcls.data import preprocess
@@ -65,7 +66,7 @@ def create_operators(params, class_num=None):
     return ops
 
 
-def build_dataloader(config, mode, device, use_dali=False, seed=None):
+def build_dataloader(config, mode, device, use_dali=False, seed=None, model=None, test_transform_ops=None):
     assert mode in [
         'Train', 'Eval', 'Test', 'Gallery', 'Query'
     ], "Dataset mode should be Train, Eval, Test, Gallery, Query"
@@ -96,7 +97,10 @@ def build_dataloader(config, mode, device, use_dali=False, seed=None):
         shuffle = config_sampler["shuffle"]
     else:
         sampler_name = config_sampler.pop("name")
-        batch_sampler = eval(sampler_name)(dataset, **config_sampler)
+        if sampler_name == "GraphSampler":
+            batch_sampler = eval(sampler_name)(dataset, model=model, test_transform_ops=test_transform_ops, **config_sampler)
+        else:
+            batch_sampler = eval(sampler_name)(dataset, **config_sampler)
 
     logger.debug("build batch_sampler({}) success...".format(batch_sampler))
 

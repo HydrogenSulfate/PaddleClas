@@ -25,6 +25,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps, __version__ as PILLOW_VERSION
 from paddle.vision.transforms import ColorJitter as RawColorJitter
+from paddle.vision.transforms import RandomRotation as RawRandomRotation
 from paddle.vision.transforms import ToTensor, Normalize, RandomHorizontalFlip, RandomResizedCrop
 from paddle.vision.transforms import functional as F
 from .autoaugment import ImageNetPolicy
@@ -472,7 +473,14 @@ class RandFlipImage(object):
             if isinstance(img, np.ndarray):
                 return cv2.flip(img, self.flip_code)
             else:
-                return img.transpose(Image.FLIP_LEFT_RIGHT)
+                if self.flip_code == 1:
+                    return img.transpose(Image.FLIP_LEFT_RIGHT)
+                elif self.flip_code == 0:
+                    return img.transpose(Image.FLIP_TOP_BOTTOM)
+                else:
+                    raise ValueError(
+                        f"flip code must in [0, 1] when input is Image.Image, but got {self.flip_code}"
+                    )
         else:
             return img
 
@@ -615,9 +623,10 @@ class ColorJitter(RawColorJitter):
     """ColorJitter.
     """
 
-    def __init__(self, prob=2, *args, **kwargs):
+    def __init__(self, prob=2, backend="cv2", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.prob = prob
+        self.backend = backend
 
     def __call__(self, img):
         if np.random.random() < self.prob:
@@ -625,8 +634,39 @@ class ColorJitter(RawColorJitter):
                 img = np.ascontiguousarray(img)
                 img = Image.fromarray(img)
             img = super()._apply_image(img)
-            if isinstance(img, Image.Image):
+            if isinstance(img, Image.Image) and self.backend == "cv2":
                 img = np.asarray(img)
+        return img
+
+
+class ChannelShuffle(object):
+    """ChannelShuffle.
+    """
+
+    def __init__(self, prob=0.1):
+        self.prob = prob
+
+    def __call__(self, img):
+        if np.random.random() < self.prob:
+            rgb: tuple = img.split()  # 获得RGB通道数据
+            ind = [0, 1, 2]
+            random.shuffle(ind)
+            if ind != [0, 1, 2]:
+                img = Image.merge(img.mode, (rgb[ind[0]], rgb[ind[1]], rgb[ind[2]]))
+        return img
+
+
+class RandomRotation(RawRandomRotation):
+    """RandomRotation.
+    """
+
+    def __init__(self, prob=0.5, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.prob = prob
+
+    def __call__(self, img):
+        if np.random.random() < self.prob:
+            img = super()._apply_image(img)
         return img
 
 

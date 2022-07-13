@@ -19,6 +19,7 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 
+from ppcls.arch.utils import get_param_attr_dict
 
 class CircleMargin(nn.Layer):
     def __init__(self, embedding_size, class_num, margin, scale):
@@ -42,7 +43,7 @@ class CircleMargin(nn.Layer):
             paddle.sum(paddle.square(self.weight), axis=0, keepdim=True))
         weight = paddle.divide(self.weight, weight_norm)
 
-        logits = paddle.matmul(input, weight)
+        logits = paddle.matmul(input, weight)  # [-1,1]
         if not self.training or label is None:
             return logits
 

@@ -381,7 +381,10 @@ def _load_pretrained(pretrained, model, model_url, use_ssld):
     elif pretrained is True:
         load_dygraph_pretrain_from_url(model, model_url, use_ssld=use_ssld)
     elif isinstance(pretrained, str):
-        load_dygraph_pretrain(model, pretrained)
+        if 'http' in pretrained:
+            load_dygraph_pretrain_from_url(model, pretrained, use_ssld=False)
+        else:
+            load_dygraph_pretrain(model, pretrained)
     else:
         raise RuntimeError(
             "pretrained type is not available. Please use `string` or `boolean` type."

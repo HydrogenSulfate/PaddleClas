@@ -82,13 +82,15 @@ class Momentum(object):
                  momentum,
                  weight_decay=None,
                  grad_clip=None,
-                 multi_precision=True):
+                 multi_precision=True,
+                 use_nesterov=False):
         super().__init__()
         self.learning_rate = learning_rate
         self.momentum = momentum
         self.weight_decay = weight_decay
         self.grad_clip = grad_clip
         self.multi_precision = multi_precision
+        self.use_nesterov = use_nesterov
 
     def __call__(self, model_list):
         # model_list is None in static graph
@@ -100,7 +102,8 @@ class Momentum(object):
             weight_decay=self.weight_decay,
             grad_clip=self.grad_clip,
             multi_precision=self.multi_precision,
-            parameters=parameters)
+            parameters=parameters,
+            use_nesterov=self.use_nesterov)
         if hasattr(opt, '_use_multi_tensor'):
             opt = optim.Momentum(
                 learning_rate=self.learning_rate,
@@ -109,7 +112,8 @@ class Momentum(object):
                 grad_clip=self.grad_clip,
                 multi_precision=self.multi_precision,
                 parameters=parameters,
-                use_multi_tensor=True)
+                use_multi_tensor=True,
+                use_nesterov=self.use_nesterov)
         return opt
 
 

@@ -14,6 +14,7 @@
 
 from typing import Tuple, List, Dict, Union, Callable, Any
 
+import paddle
 from paddle import nn
 from ppcls.utils import logger
 
@@ -208,7 +209,7 @@ def save_sub_res_hook(layer, input, output):
 
 def set_identity(parent_layer: nn.Layer,
                  layer_name: str,
-                 layer_index: str=None) -> bool:
+                 layer_index: str = None) -> bool:
     """set the layer specified by layer_name and layer_index to Indentity.
 
     Args:
@@ -299,3 +300,242 @@ def parse_pattern_str(pattern: str, parent_layer: nn.Layer) -> Union[
         pattern_list = pattern_list[1:]
         parent_layer = target_layer
     return layer_list
+
+
+class CrissCrossAttention(nn.Layer):
+    def __init__(self, in_channels, reduction=8):
+        super().__init__()
+        self.q_conv = nn.Conv2D(in_channels, in_channels // reduction, kernel_size=1)
+        self.k_conv = nn.Conv2D(in_channels, in_channels // reduction, kernel_size=1)
+        self.v_conv = nn.Conv2D(in_channels, in_channels, kernel_size=1)
+        self.softmax = nn.Softmax(axis=3)
+        self.gamma = self.create_parameter(
+            shape=(1, ), default_initializer=nn.initializer.Constant(0))
+        self.inf_tensor = paddle.full(shape=(1, ), fill_value=float('inf'))
+
+    def forward(self, x):
+        b, c, h, w = paddle.shape(x)
+        proj_q = self.q_conv(x)
+        proj_q_h = proj_q.transpose([0, 3, 1, 2]).reshape(
+            [b * w, -1, h]).transpose([0, 2, 1])
+        proj_q_w = proj_q.transpose([0, 2, 1, 3]).reshape(
+            [b * h, -1, w]).transpose([0, 2, 1])
+
+        proj_k = self.k_conv(x)
+        proj_k_h = proj_k.transpose([0, 3, 1, 2]).reshape([b * w, -1, h])
+        proj_k_w = proj_k.transpose([0, 2, 1, 3]).reshape([b * h, -1, w])
+
+        proj_v = self.v_conv(x)
+        proj_v_h = proj_v.transpose([0, 3, 1, 2]).reshape([b * w, -1, h])
+        proj_v_w = proj_v.transpose([0, 2, 1, 3]).reshape([b * h, -1, w])
+
+        energy_h = (paddle.bmm(proj_q_h, proj_k_h) + self.Inf(b, h, w)).reshape(
+            [b, w, h, h]).transpose([0, 2, 1, 3])
+        energy_w = paddle.bmm(proj_q_w, proj_k_w).reshape([b, h, w, w])
+        concate = self.softmax(paddle.concat([energy_h, energy_w], axis=3))
+
+        attn_h = concate[:, :, :, 0:h].transpose([0, 2, 1, 3]).reshape(
+            [b * w, h, h])
+        attn_w = concate[:, :, :, h:h + w].reshape([b * h, w, w])
+        out_h = paddle.bmm(proj_v_h, attn_h.transpose([0, 2, 1])).reshape(
+            [b, w, -1, h]).transpose([0, 2, 3, 1])
+        out_w = paddle.bmm(proj_v_w, attn_w.transpose([0, 2, 1])).reshape(
+            [b, h, -1, w]).transpose([0, 2, 1, 3])
+        return self.gamma * (out_h + out_w) + x
+
+    def Inf(self, B, H, W):
+        return -paddle.tile(
+            paddle.diag(paddle.tile(self.inf_tensor, [H]), 0).unsqueeze(0),
+            [B * W, 1, 1])
+
+
+class RCCAModule(nn.Layer):
+    def __init__(self,
+                 in_channels,
+                 inter_channels,
+                 reduction,
+                 recurrence=2):
+        super().__init__()
+        self.recurrence = recurrence
+        self.reduce = nn.Conv2D(in_channels, inter_channels, 1, padding=0, bias_attr=False)
+        self.cca = CrissCrossAttention(inter_channels, reduction)
+        self.W = nn.Sequential(
+            nn.Conv2D(in_channels=inter_channels, out_channels=in_channels,
+                      kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2D(in_channels),
+        )
+        nn.initializer.Constant(0.0)(self.W[1].weight)
+        nn.initializer.Constant(0.0)(self.W[1].bias)
+
+    def forward(self, x):
+        feat = self.reduce(x)
+        for i in range(self.recurrence):
+            feat = self.cca(feat)
+        feat = self.W(feat)
+        return x + feat
+
+
+class GeneralizedMeanPooling(nn.Layer):
+    def __init__(self, norm=3, output_size=(1, 1), eps=1e-6, *args, **kwargs):
+        super(GeneralizedMeanPooling, self).__init__()
+        assert norm > 0
+        self.p = float(norm)
+        self.output_size = output_size
+        self.eps = eps
+
+    def forward(self, x):
+        x = x.clip(min=self.eps).pow(self.p)
+        return nn.functional.adaptive_avg_pool2d(x, self.output_size).pow(1. / self.p)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' \
+               + str(self.p) + ', ' \
+               + 'output_size=' + str(self.output_size) + ')'
+
+
+class GeneralizedMeanPoolingP(GeneralizedMeanPooling):
+    """ Same, but norm is trainable
+    """
+
+    def __init__(self, norm=3, output_size=(1, 1), eps=1e-6, *args, **kwargs):
+        super(GeneralizedMeanPoolingP, self).__init__(norm, output_size, eps)
+        self.p = self.create_parameter(
+            shape=(1, ),
+            default_initializer=nn.initializer.Constant(1. * norm)
+        )
+        self.add_parameter("p", self.p)
+
+
+class RGAModule(nn.Layer):
+    def __init__(self, in_channel, in_spatial, use_spatial=True, use_channel=True, cha_ratio=8, spa_ratio=8, down_ratio=8):
+        super(RGAModule, self).__init__()
+
+        self.in_channel = in_channel
+        self.in_spatial = in_spatial
+
+        self.use_spatial = use_spatial
+        self.use_channel = use_channel
+
+        logger.info(f"{'=' * 10} Use_Spatial_Att: {self.use_spatial}, Use_Channel_Att: {self.use_channel}")
+
+        self.inter_channel = in_channel // cha_ratio
+        self.inter_spatial = in_spatial // spa_ratio
+
+        # Embedding functions for original features
+        if self.use_spatial:
+            self.gx_spatial = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_channel, out_channels=self.inter_channel, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_channel),
+                nn.ReLU()
+            )
+        if self.use_channel:
+            self.gx_channel = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_spatial, out_channels=self.inter_spatial, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_spatial),
+                nn.ReLU()
+            )
+
+        # Embedding functions for relation features
+        if self.use_spatial:
+            self.gg_spatial = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_spatial * 2, out_channels=self.inter_spatial, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_spatial),
+                nn.ReLU()
+            )
+        if self.use_channel:
+            self.gg_channel = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_channel*2, out_channels=self.inter_channel, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_channel),
+                nn.ReLU()
+            )
+
+        # Networks for learning attention weights
+        if self.use_spatial:
+            num_channel_s = 1 + self.inter_spatial
+            self.W_spatial = nn.Sequential(
+                nn.Conv2D(in_channels=num_channel_s, out_channels=num_channel_s//down_ratio, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(num_channel_s//down_ratio),
+                nn.ReLU(),
+                nn.Conv2D(in_channels=num_channel_s//down_ratio, out_channels=1, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(1)
+            )
+        if self.use_channel:    
+            num_channel_c = 1 + self.inter_channel
+            self.W_channel = nn.Sequential(
+                nn.Conv2D(in_channels=num_channel_c, out_channels=num_channel_c//down_ratio, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(num_channel_c//down_ratio),
+                nn.ReLU(),
+                nn.Conv2D(in_channels=num_channel_c//down_ratio, out_channels=1, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(1)
+            )
+
+        # Embedding functions for modeling relations
+        if self.use_spatial:
+            self.theta_spatial = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_channel, out_channels=self.inter_channel, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_channel),
+                nn.ReLU()
+            )
+            self.phi_spatial = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_channel, out_channels=self.inter_channel, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_channel),
+                nn.ReLU()
+            )
+        if self.use_channel:
+            self.theta_channel = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_spatial, out_channels=self.inter_spatial, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_spatial),
+                nn.ReLU()
+            )
+            self.phi_channel = nn.Sequential(
+                nn.Conv2D(in_channels=self.in_spatial, out_channels=self.inter_spatial, kernel_size=1, stride=1, padding=0, bias_attr=False),
+                nn.BatchNorm2D(self.inter_spatial),
+                nn.ReLU()
+            )
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+
+        if self.use_spatial:
+            # spatial attention
+            theta_xs = self.theta_spatial(x)
+            phi_xs = self.phi_spatial(x)
+            theta_xs = theta_xs.reshape([b, self.inter_channel, -1])
+            theta_xs = theta_xs.transpose((0, 2, 1))
+            phi_xs = phi_xs.reshape([b, self.inter_channel, -1])
+            Gs = paddle.matmul(theta_xs, phi_xs)
+            Gs_in = Gs.transpose((0, 2, 1)).reshape([b, h*w, h, w])
+            Gs_out = Gs.reshape([b, h*w, h, w])
+            Gs_joint = paddle.concat((Gs_in, Gs_out), 1)
+            Gs_joint = self.gg_spatial(Gs_joint)
+
+            g_xs = self.gx_spatial(x)
+            g_xs = paddle.mean(g_xs, axis=1, keepdim=True)
+            ys = paddle.concat((g_xs, Gs_joint), 1)
+
+            W_ys = self.W_spatial(ys)
+            if not self.use_channel:
+                out = nn.functional.sigmoid(W_ys.expand_as(x)) * x
+                return out
+            else:
+                x = nn.functional.sigmoid(W_ys.expand_as(x)) * x
+
+        if self.use_channel:
+            # channel attention
+            xc = x.reshape([b, c, -1]).transpose((0, 2, 1)).unsqueeze(-1)
+            theta_xc = self.theta_channel(xc).squeeze(-1).transpose((0, 2, 1))
+            phi_xc = self.phi_channel(xc).squeeze(-1)
+            Gc = paddle.matmul(theta_xc, phi_xc)
+            Gc_in = Gc.transpose((0, 2, 1)).unsqueeze(-1)
+            Gc_out = Gc.unsqueeze(-1)
+            Gc_joint = paddle.concat((Gc_in, Gc_out), 1)
+            Gc_joint = self.gg_channel(Gc_joint)
+
+            g_xc = self.gx_channel(xc)
+            g_xc = paddle.mean(g_xc, axis=1, keepdim=True)
+            yc = paddle.concat((g_xc, Gc_joint), 1)
+
+            W_yc = self.W_channel(yc).transpose((0, 2, 1, 3))
+            out = nn.functional.sigmoid(W_yc) * x
+
+            return out

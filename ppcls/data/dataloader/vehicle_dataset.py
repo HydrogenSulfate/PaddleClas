@@ -23,6 +23,7 @@ import cv2
 from ppcls.data import preprocess
 from ppcls.data.preprocess import transform
 from ppcls.utils import logger
+from PIL import Image
 from .common_dataset import create_operators
 
 
@@ -113,8 +114,10 @@ class VeriWild(Dataset):
                 l = l.strip().split()
                 self.images.append(os.path.join(self._img_root, l[0]))
                 self.labels.append(np.int64(l[1]))
-                self.cameras.append(np.int64(l[2]))
+                if len(l) >= 3:
+                    self.cameras.append(np.int64(l[2]))
                 assert os.path.exists(self.images[-1])
+        self.has_cameras = len(self.cameras) > 0
 
     def __getitem__(self, idx):
         try:
@@ -123,7 +126,10 @@ class VeriWild(Dataset):
             if self._transform_ops:
                 img = transform(img, self._transform_ops)
             img = img.transpose((2, 0, 1))
-            return (img, self.labels[idx], self.cameras[idx])
+            if self.has_cameras:
+                return (img, self.labels[idx], self.cameras[idx])
+            else:
+                return (img, self.labels[idx])
         except Exception as ex:
             logger.error("Exception occured when parse line: {} with msg: {}".
                          format(self.images[idx], ex))
@@ -135,4 +141,77 @@ class VeriWild(Dataset):
 
     @property
     def class_num(self):
+        return len(set(self.labels))
+
+
+class VeriWild_New(Dataset):
+    """use strong-baseline's read op
+
+    Args:
+        Dataset (_type_): _description_
+    """
+    def __init__(
+            self,
+            image_root,
+            cls_label_path,
+            transform_ops=None,
+            backend="cv2"):
+        self._img_root = image_root
+        self._cls_path = cls_label_path
+        self.backend = backend
+        if transform_ops:
+            self._transform_ops = create_operators(transform_ops)
+        self._dtype = paddle.get_default_dtype()
+        self._load_anno()
+
+    def _load_anno(self):
+        assert os.path.exists(self._cls_path)
+        assert os.path.exists(self._img_root)
+        self.images = []
+        self.labels = []
+        self.cameras = []
+        with open(self._cls_path) as fd:
+            lines = fd.readlines()
+            for line in lines:
+                line = line.strip().split()
+                self.images.append(os.path.join(self._img_root, line[0]))
+                self.labels.append(np.int64(line[1]))
+                if len(line) >= 3:
+                    self.cameras.append(np.int64(line[2]))
+                assert os.path.exists(self.images[-1])
+        self.has_cameras = len(self.cameras) > 0
+
+    def __getitem__(self, idx):
+        try:
+            img = Image.open(self.images[idx]).convert('RGB')
+            if self.backend == "cv2":
+                img = np.array(img, dtype="float32").astype(np.uint8)
+            if self._transform_ops:
+                img = transform(img, self._transform_ops)
+            if self.backend == "cv2":
+                img = img.transpose((2, 0, 1))
+            if self.has_cameras:
+                return (img, self.labels[idx], self.cameras[idx])
+            else:
+                return (img, self.labels[idx])
+
+        except Exception as ex:
+            logger.error("Exception occured when parse line: {} with msg: {}".
+                         format(self.images[idx], ex))
+            rnd_idx = np.random.randint(self.__len__())
+            return self.__getitem__(rnd_idx)
+
+    def __len__(self):
+        return len(self.images)
+
+    def get_transform_ops(self):
+        return self._transform_ops
+
+    @property
+    def class_num(self):
+        """class_num
+
+        Returns:
+            int: class_num
+        """
         return len(set(self.labels))

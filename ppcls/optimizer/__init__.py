@@ -88,7 +88,8 @@ def build_optimizer(config, epochs, step_each_epoch, model_list=None):
         # step3 build optimizer
         if 'clip_norm' in optim_cfg:
             clip_norm = optim_cfg.pop('clip_norm')
-            grad_clip = paddle.nn.ClipGradByNorm(clip_norm=clip_norm)
+            # grad_clip = paddle.nn.ClipGradByNorm(clip_norm=clip_norm)
+            grad_clip = paddle.nn.ClipGradByGlobalNorm(clip_norm=clip_norm)
         else:
             grad_clip = None
         optim_model = []

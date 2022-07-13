@@ -52,7 +52,7 @@ class PKSampler(DistributedBatchSampler):
         self.label_dict = defaultdict(list)
         self.sample_method = sample_method
         for idx, label in enumerate(self.dataset.labels):
-            self.label_dict[label].append(idx)
+            self.label_dict[label].append(idx)  # pid->index
         self.label_list = list(self.label_dict)
         assert len(self.label_list) * self.sample_per_label > self.batch_size, \
             "batch size should be smaller than "
@@ -79,27 +79,27 @@ class PKSampler(DistributedBatchSampler):
                 )
 
     def __iter__(self):
-        label_per_batch = self.batch_size // self.sample_per_label
+        label_per_batch = self.batch_size // self.sample_per_label  # 计算P
         for _ in range(len(self)):
             batch_index = []
             batch_label_list = np.random.choice(
                 self.label_list,
                 size=label_per_batch,
                 replace=False,
-                p=self.prob_list)
-            for label_i in batch_label_list:
-                label_i_indexes = self.label_dict[label_i]
-                if self.sample_per_label <= len(label_i_indexes):
+                p=self.prob_list)  # 首先从所有pid随机选P个人
+            for label_i in batch_label_list:  # P个人中为每一个人选K个像同类的图片
+                label_i_indexes = self.label_dict[label_i]  # 类内的图片所在下标
+                if self.sample_per_label <= len(label_i_indexes):  # 足够，可以选出K个
                     batch_index.extend(
                         np.random.choice(
                             label_i_indexes,
                             size=self.sample_per_label,
-                            replace=False))
-                else:
+                            replace=False))  # 随机选K个
+                else:  # 不够K张图片，允许重复选K张图片
                     batch_index.extend(
                         np.random.choice(
                             label_i_indexes,
                             size=self.sample_per_label,
                             replace=True))
-            if not self.drop_last or len(batch_index) == self.batch_size:
+            if not self.drop_last or len(batch_index) == self.batch_size:  # 如果关闭了self.drop_last或者选够了P*K张图片，则yield结果
                 yield batch_index

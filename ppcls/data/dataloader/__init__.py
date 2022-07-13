@@ -9,5 +9,6 @@ from ppcls.data.dataloader.multi_scale_dataset import MultiScaleDataset
 from ppcls.data.dataloader.mix_sampler import MixSampler
 from ppcls.data.dataloader.multi_scale_sampler import MultiScaleSampler
 from ppcls.data.dataloader.pk_sampler import PKSampler
+from ppcls.data.dataloader.graph_sampler import GraphSampler
 from ppcls.data.dataloader.person_dataset import Market1501, MSMT17
 from ppcls.data.dataloader.face_dataset import AdaFaceDataset, FiveValidationDataset
