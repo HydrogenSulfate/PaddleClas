@@ -29,11 +29,13 @@ from ppcls.data.preprocess.ops.operators import RandCropImageV2
 from ppcls.data.preprocess.ops.operators import RawColorJitter
 from ppcls.data.preprocess.ops.operators import RandomRotation
 from ppcls.data.preprocess.ops.operators import ChannelShuffle
+from ppcls.data.preprocess.ops.operators import GaussianBlur
 from ppcls.data.preprocess.ops.operators import RandFlipImage
 from ppcls.data.preprocess.ops.operators import NormalizeImage
 from ppcls.data.preprocess.ops.operators import ToCHWImage
 from ppcls.data.preprocess.ops.operators import AugMix
 from ppcls.data.preprocess.ops.operators import Pad
+from ppcls.data.preprocess.ops.operators import Pad_cv2
 from ppcls.data.preprocess.ops.operators import ToTensor
 from ppcls.data.preprocess.ops.operators import Normalize
 from ppcls.data.preprocess.ops.operators import RandomHorizontalFlip
@@ -44,6 +46,7 @@ from ppcls.data.preprocess.ops.operators import RandomCropImage
 from ppcls.data.preprocess.ops.operators import Padv2
 
 from ppcls.data.preprocess.batch_ops.batch_operators import MixupOperator, CutmixOperator, OpSampler, FmixOperator
+from ppcls.data.preprocess.batch_ops.batch_operators import ClassWiseMixupOperator
 
 import numpy as np
 from PIL import Image

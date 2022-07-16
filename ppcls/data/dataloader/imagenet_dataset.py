@@ -16,6 +16,7 @@ from __future__ import print_function
 
 import os
 
+import cv2
 import jpeg4py as jpeg
 import numpy as np
 from PIL import Image
@@ -54,6 +55,72 @@ class ImageNetDataset(CommonDataset):
                 img = transform(img, self._transform_ops)
             if self.backend == "cv2":
                 img = img.transpose((2, 0, 1))
+            return (img, self.labels[idx])
+        except Exception as ex:
+            logger.error("Exception occured when parse line: {} with msg: {}".
+                         format(self.images[idx], ex))
+            rnd_idx = np.random.randint(self.__len__())
+            return self.__getitem__(rnd_idx)
+
+    def set_transform_ops(self, transform_ops):
+        self._transform_ops = transform_ops
+
+    def _load_anno(self, seed=None):
+        assert os.path.exists(self._cls_path)
+        assert os.path.exists(self._img_root)
+        self.images = []
+        self.labels = []
+
+        with open(self._cls_path) as fd:
+            lines = fd.readlines()
+            if seed is not None:
+                np.random.RandomState(seed).shuffle(lines)
+
+            label_set = set()
+            for line in lines:
+                line = line.strip().split()
+                label_set.add(int(line[1]))
+            oldlabel_2_newlabel = {oldlabel: newlabel for newlabel, oldlabel in enumerate(label_set)}
+
+            for l in lines:
+                l = l.strip().split(self.delimiter)
+                self.images.append(os.path.join(self._img_root, l[0]))
+                if self.relabel:
+                    self.labels.append(oldlabel_2_newlabel[np.int64(l[1])])
+                else:
+                    self.labels.append(np.int64(l[1]))
+                # self.labels.append(np.int64(l[1]))
+                assert os.path.exists(self.images[-1])
+        logger.info(f"images: {len(self.images)}, labels: {len(label_set)}({min(self.labels)}~{max(self.labels)})")
+
+
+class ImageNetDataset_cv2(CommonDataset):
+    def __init__(
+            self,
+            image_root,
+            cls_label_path,
+            transform_ops=None,
+            delimiter=None,
+            relabel=False,
+            backend="cv2",
+            use_jpeg4py=False):
+        self.delimiter = delimiter if delimiter is not None else " "
+        self.relabel = relabel
+        self.backend = backend
+        self.use_jpeg4py = use_jpeg4py
+        super(ImageNetDataset_cv2, self).__init__(image_root, cls_label_path, transform_ops)
+
+    def __getitem__(self, idx):
+        try:
+            if self.backend == "cv2":
+                #  二进制读取，速度快
+                with open(self.images[idx], "rb") as f:
+                    img = f.read()
+                #  直接读取，速度慢
+                # img = cv2.imread(self.images[idx])  # BGR, uint8
+                # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # RGB, uint8
+            if self._transform_ops:
+                img = transform(img, self._transform_ops)
             return (img, self.labels[idx])
         except Exception as ex:
             logger.error("Exception occured when parse line: {} with msg: {}".

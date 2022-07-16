@@ -23,7 +23,7 @@ import math
 import random
 import cv2
 import numpy as np
-from PIL import Image, ImageOps, __version__ as PILLOW_VERSION
+from PIL import Image, ImageOps, __version__ as PILLOW_VERSION, ImageFilter
 from paddle.vision.transforms import ColorJitter as RawColorJitter
 from paddle.vision.transforms import RandomRotation as RawRandomRotation
 from paddle.vision.transforms import ToTensor, Normalize, RandomHorizontalFlip, RandomResizedCrop
@@ -434,7 +434,7 @@ class RandCropImageV2(object):
 
     def __call__(self, img):
         if isinstance(img, np.ndarray):
-            img_h, img_w = img.shap[0], img.shap[1]
+            img_h, img_w = img.shape[0], img.shape[1]
         else:
             img_w, img_h = img.size
         tw, th = self.size
@@ -670,6 +670,24 @@ class RandomRotation(RawRandomRotation):
         return img
 
 
+class GaussianBlur(object):
+    """GaussianBlur.
+    """
+
+    def __init__(self, prob=0.2, radius=2):
+        self.prob = prob
+        self.radius = radius
+
+    def __call__(self, img):
+        if np.random.random() < self.prob:
+            if isinstance(self.radius, int):
+                img = img.filter(ImageFilter.GaussianBlur(radius=self.radius))
+            else:
+                radius = np.random.choice(self.radius)
+                img = img.filter(ImageFilter.GaussianBlur(radius=radius))
+        return img
+
+
 class Pad(object):
     """
     Pads the given PIL.Image on all sides with specified padding mode and fill value.
@@ -723,3 +741,21 @@ class Pad(object):
             return img
 
         return ImageOps.expand(img, border=self.padding, **opts)
+
+
+class Pad_cv2(object):
+    """
+    Pad using cv2
+    """
+
+    def __init__(self,
+                 padding: int,
+                 fill: int = 0,
+                 padding_mode: str = "constant"):
+        self.padding = padding
+        self.fill = fill
+        self.padding_mode = padding_mode
+
+    def __call__(self, img):
+        img = cv2.copyMakeBorder(img, self.padding, self.padding, self.padding, self.padding, cv2.BORDER_CONSTANT, value=(self.fill, self.fill, self.fill))
+        return img

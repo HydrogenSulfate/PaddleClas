@@ -21,10 +21,10 @@ from ppcls.utils import logger
 
 from ppcls.data import dataloader
 # dataset
-from ppcls.data.dataloader.imagenet_dataset import ImageNetDataset
+from ppcls.data.dataloader.imagenet_dataset import ImageNetDataset, ImageNetDataset_cv2
 from ppcls.data.dataloader.multilabel_dataset import MultiLabelDataset
 from ppcls.data.dataloader.common_dataset import create_operators
-from ppcls.data.dataloader.vehicle_dataset import CompCars, VeriWild, VeriWild_New
+from ppcls.data.dataloader.vehicle_dataset import CompCars, VeriWild, VeriWild_New, VeriWild_New_cv2
 from ppcls.data.dataloader.logo_dataset import LogoDataset
 from ppcls.data.dataloader.icartoon_dataset import ICartoonDataset
 from ppcls.data.dataloader.mix_dataset import MixDataset

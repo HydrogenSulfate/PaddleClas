@@ -215,3 +215,78 @@ class VeriWild_New(Dataset):
             int: class_num
         """
         return len(set(self.labels))
+
+
+class VeriWild_New_cv2(Dataset):
+    """use strong-baseline's read op, in cv2 backend
+
+    Args:
+        Dataset (_type_): _description_
+    """
+    def __init__(
+            self,
+            image_root,
+            cls_label_path,
+            transform_ops=None,
+            backend="cv2"):
+        self._img_root = image_root
+        self._cls_path = cls_label_path
+        self.backend = backend
+        if transform_ops:
+            self._transform_ops = create_operators(transform_ops)
+        self._dtype = paddle.get_default_dtype()
+        self._load_anno()
+
+    def _load_anno(self):
+        assert os.path.exists(self._cls_path)
+        assert os.path.exists(self._img_root)
+        self.images = []
+        self.labels = []
+        self.cameras = []
+        with open(self._cls_path) as fd:
+            lines = fd.readlines()
+            for line in lines:
+                line = line.strip().split()
+                self.images.append(os.path.join(self._img_root, line[0]))
+                self.labels.append(np.int64(line[1]))
+                if len(line) >= 3:
+                    self.cameras.append(np.int64(line[2]))
+                assert os.path.exists(self.images[-1])
+        self.has_cameras = len(self.cameras) > 0
+
+    def __getitem__(self, idx):
+        try:
+            if self.backend == "cv2":
+                #  二进制读取，速度快
+                with open(self.images[idx], "rb") as f:
+                    img = f.read()
+                #  直接读取，速度慢
+                # img = cv2.imread(self.images[idx])  # BGR, uint8
+                # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # RGB, uint8
+            if self._transform_ops:
+                img = transform(img, self._transform_ops)
+            if self.has_cameras:
+                return (img, self.labels[idx], self.cameras[idx])
+            else:
+                return (img, self.labels[idx])
+
+        except Exception as ex:
+            logger.error("Exception occured when parse line: {} with msg: {}".
+                         format(self.images[idx], ex))
+            rnd_idx = np.random.randint(self.__len__())
+            return self.__getitem__(rnd_idx)
+
+    def __len__(self):
+        return len(self.images)
+
+    def get_transform_ops(self):
+        return self._transform_ops
+
+    @property
+    def class_num(self):
+        """class_num
+
+        Returns:
+            int: class_num
+        """
+        return len(set(self.labels))
