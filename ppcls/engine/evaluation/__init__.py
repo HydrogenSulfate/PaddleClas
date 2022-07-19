@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from ppcls.engine.evaluation.classification import classification_eval
+from ppcls.engine.evaluation.classification_dolg import classification_dolg_eval
 from ppcls.engine.evaluation.retrieval import retrieval_eval
 from ppcls.engine.evaluation.adaface import adaface_eval

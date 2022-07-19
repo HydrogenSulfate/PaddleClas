@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .arcmargin import ArcMargin
+from .arcmargin import ArcMargin, ArcMarginP
 from .cosmargin import CosMargin
 from .circlemargin import CircleMargin
 from .fc import FC
@@ -27,7 +27,8 @@ __all__ = ['build_gear']
 def build_gear(config):
     support_dict = [
         'ArcMargin', 'CosMargin', 'CircleMargin', 'FC', 'VehicleNeck', 'Tanh',
-        'BNNeck', 'AdaMargin'
+        'BNNeck', 'AdaMargin',
+        'ArcMarginP'
     ]
     module_name = config.pop('name')
     assert module_name in support_dict, Exception(

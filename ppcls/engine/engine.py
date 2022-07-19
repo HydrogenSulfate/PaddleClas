@@ -76,7 +76,7 @@ class Engine(object):
 
         # init train_func and eval_func
         assert self.eval_mode in [
-            "classification", "retrieval", "adaface"
+            "classification", "retrieval", "adaface", "classification_dolg"
         ], logger.error("Invalid eval mode: {}".format(self.eval_mode))
         self.train_epoch_func = train_epoch
         self.eval_func = getattr(evaluation, self.eval_mode + "_eval")
@@ -116,7 +116,7 @@ class Engine(object):
                 self.config["DataLoader"], "Train", self.device, self.use_dali)
         if self.mode == "eval" or (self.mode == "train" and
                                    self.config["Global"]["eval_during_train"]):
-            if self.eval_mode in ["classification", "adaface"]:
+            if self.eval_mode in ["classification", "adaface", "classification_dolg"]:
                 self.eval_dataloader = build_dataloader(
                     self.config["DataLoader"], "Eval", self.device,
                     self.use_dali)
@@ -169,6 +169,12 @@ class Engine(object):
         if self.mode == "eval" or (self.mode == "train" and
                                    self.config["Global"]["eval_during_train"]):
             if self.eval_mode == "classification":
+                if "Metric" in self.config and "Eval" in self.config["Metric"]:
+                    self.eval_metric_func = build_metrics(self.config["Metric"]
+                                                          ["Eval"])
+                else:
+                    self.eval_metric_func = None
+            if self.eval_mode == "classification_dolg":
                 if "Metric" in self.config and "Eval" in self.config["Metric"]:
                     self.eval_metric_func = build_metrics(self.config["Metric"]
                                                           ["Eval"])
@@ -302,6 +308,79 @@ class Engine(object):
                 "transforms"])
             self.postprocess_func = build_postprocess(self.config["Infer"][
                 "PostProcess"])
+
+        # 组网对齐
+        # self.model = build_model(self.config, self.mode)
+        # num_param = 0
+        # for k, v in self.model.named_parameters():
+        #     if hasattr(v, 'shape'):
+        #         num_param += np.prod(list(v.shape))
+        # print(num_param)
+
+        # 打印初始化完毕的参数，检查是否对齐
+        # for name, param in self.model.state_dict().items():
+        #     if 'short' not in name:
+        #         print(f"{name} {param.min().item():.10f} {param.mean().item():.10f} {param.max().item():.10f}")
+        # for name, param in self.model.state_dict().items():
+        #     if 'track' in name:
+        #         continue
+        #     if 'short' in name:
+        #         print(f"{name} {param.min().item():.10f} {param.mean().item():.10f} {param.max().item():.10f}")
+        # exit(0)
+
+        # 参数初始化对齐
+        # self.model = build_model(self.config, self.mode)
+        # load_sd = paddle.load("")
+        # self.model.load_dict(load_sd)
+        # print(len(self.optimizer))
+        # self.optimizer = [paddle.optimizer.Momentum(
+        #     learning_rate=self.optimizer[0]._learning_rate,
+        #     momentum=0.9,
+        #     parameters=self.model.parameters(),
+        #     use_nesterov=True,
+        #     weight_decay=paddle.regularizer.L2Decay(0.0001)
+        # )]
+        # 反向对齐
+        # for i in range(100):
+        #     fake_imgs = paddle.to_tensor(np.load(f"/workspace/hesensen/DOLG_reprod/fake_data/fake_imgs{i%10}.npy"))
+        #     fake_label = paddle.to_tensor(np.load(f"/workspace/hesensen/DOLG_reprod/fake_data/fake_label{i%10}.npy"))
+        #     cur_lr = self.optimizer[0].get_lr()
+        #     outupt_dict = self.model(fake_imgs, fake_label)
+        #     loss_dict = self.train_loss_func(outupt_dict, fake_label)
+
+        #     loss_dict["loss"].backward()
+        #     print(f"arcface.w.grad.min={self.model.head.weight.grad.min().item(): .10f}")
+        #     print(f"arcface.w.grad.mean={self.model.head.weight.grad.mean().item(): .10f}")
+        #     print(f"arcface.w.grad.max={self.model.head.weight.grad.max().item(): .10f}")
+        #     print(f"neck.w.grad.min={self.model.neck.fc.weight.grad.min().item(): .10f}")
+        #     print(f"neck.w.grad.mean={self.model.neck.fc.weight.grad.mean().item(): .10f}")
+        #     print(f"neck.w.grad.max={self.model.neck.fc.weight.grad.max().item(): .10f}")
+
+        #     exit(0)
+        #     (outupt_dict["features"]).mean().backward()
+        #     for k, v in self.model.named_parameters():
+        #         if hasattr(v, 'grad') and v.grad is not None:
+        #             print(f"{k} {v.grad.mean().item():.10f}")
+        #     exit(0)
+        #     for k, v in self.model.named_parameters():
+        #         if hasattr(v, 'grad') and v.grad is not None:
+        #             v.grad.set_value(-v.grad)
+        #             print(f"{k} {v.grad.mean().item():.10f}")
+
+        #     self.optimizer[0].step()
+        #     self.optimizer[0].clear_grad()
+        #     print(f"{i} {loss_dict['loss'].item():.10f} {cur_lr:.10f}")
+        #     for j in range(len(self.lr_sch)):
+        #         if getattr(self.lr_sch[j], "by_epoch", False):
+        #             self.lr_sch[j].step()
+
+        #     logits = outupt_dict["logits"]
+        #     feature = outupt_dict["features"]
+        #     print(f"feature{i} -> {feature.min().item():.10f} {feature.max().item():.10f} {feature.mean().item():.10f}")
+        #     print(f"logits{i} -> {logits.min().item():.10f} {logits.max().item():.10f} {logits.mean().item():.10f}")
+
+        # exit(0)
+        # paddle.save(right_sd, "/workspace/hesensen/DOLG_reprod/PaddleClas/pretrained_model/DOLG_model_random_init_complete.pdparams")
 
     def train(self):
         assert self.mode == "train"

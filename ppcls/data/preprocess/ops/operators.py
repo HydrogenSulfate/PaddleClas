@@ -206,6 +206,40 @@ class ResizeImage(object):
         return self._resize_func(img, (w, h))
 
 
+class ShortScale(object):
+    """
+    Rescale image according to short-size
+    """
+
+    def __init__(self,
+                 short_size=None,
+                 interpolation=None,
+                 backend="cv2",
+                 return_numpy=True):
+        self.short_size = short_size
+        self._resize_func = UnifiedResize(
+            interpolation=interpolation,
+            backend=backend,
+            return_numpy=return_numpy
+        )
+
+    def __call__(self, img):
+        if isinstance(img, np.ndarray):
+            img_h, img_w = img.shape[:2]
+        else:
+            img_w, img_h = img.size
+
+        if (img_w <= img_h and img_w == self.short_size) or (img_h <= img_w and img_h == self.short_size):
+            return img
+        h_new, w_new = self.short_size, self.short_size
+        if img_w < img_h:
+            h_new = int(math.floor((float(img_h) / img_w) * self.short_size))
+        else:
+            w_new = int(math.floor((float(img_w) / img_h) * self.short_size))
+
+        return self._resize_func(img, (w_new, h_new))
+
+
 class CropWithPadding(RandomResizedCrop):
     """
     crop image and padding to original size
@@ -417,6 +451,83 @@ class RandCropImage(object):
         return self._resize_func(img, size)
 
 
+class CenterCrop(object):
+    """ random crop image for numpy array"""
+
+    def __init__(self, size: int):
+        self.size = size
+
+    def __call__(self, img: np.ndarray):
+        h, w = img.shape[:2]
+        y = int(math.ceil((h - self.size) / 2))
+        x = int(math.ceil((w - self.size) / 2))
+        im_crop = img[y:(y + self.size), x:(x + self.size), :]
+        assert im_crop.shape[:2] == (self.size, self.size)
+        return im_crop
+
+
+class RandomResizeCrop(object):
+    """
+    Performs Inception-style cropping (HWC format).
+    """
+
+    def __init__(self,
+                 size: int,
+                 area_frac: float,
+                 max_iter: int = 10):
+        self.size = size
+        self.area_frac = area_frac
+        self.max_iter = 10
+
+    def _center_crop(self, size: int, img: np.ndarray) -> np.ndarray:
+        """
+        Performs center cropping (HWC format).
+        """
+        h, w = img.shape[:2]
+        y = int(math.ceil((h - size) / 2))
+        x = int(math.ceil((w - size) / 2))
+        im_crop = img[y:(y + size), x:(x + size), :]
+        assert im_crop.shape[:2] == (size, size)
+        return im_crop
+
+    def _scale(self, size: int, im: np.ndarray) -> np.ndarray:
+        """
+        Performs scaling (HWC format).
+        """
+        h, w = im.shape[:2]
+        if (w <= h and w == size) or (h <= w and h == size):
+            return im
+        h_new, w_new = size, size
+        if w < h:
+            h_new = int(math.floor((float(h) / w) * size))
+        else:
+            w_new = int(math.floor((float(w) / h) * size))
+        im = cv2.resize(im, (w_new, h_new), interpolation=cv2.INTER_LINEAR)
+        return im.astype(np.float32)
+
+    def __call__(self, img: np.ndarray) -> np.ndarray:
+        """
+        Performs Inception-style cropping (HWC format).
+        """
+        h, w = img.shape[:2]
+        area = h * w
+        for _ in range(self.max_iter):
+            target_area = np.random.uniform(self.area_frac, 1.0) * area
+            aspect_ratio = np.random.uniform(3.0 / 4.0, 4.0 / 3.0)
+            w_crop = int(round(math.sqrt(float(target_area) * aspect_ratio)))
+            h_crop = int(round(math.sqrt(float(target_area) / aspect_ratio)))
+            if np.random.uniform() < 0.5:
+                w_crop, h_crop = h_crop, w_crop
+            if h_crop <= h and w_crop <= w:
+                y = 0 if h_crop == h else np.random.randint(0, h - h_crop)
+                x = 0 if w_crop == w else np.random.randint(0, w - w_crop)
+                img_crop = img[y:(y + h_crop), x:(x + w_crop), :]
+                assert img_crop.shape[:2] == (h_crop, w_crop)
+                img_crop = cv2.resize(img_crop, (self.size, self.size), interpolation=cv2.INTER_LINEAR)
+                return img_crop.astype(np.float32)
+        return self._center_crop(self.size, self._scale(self.size, img))
+
+
 class RandCropImageV2(object):
     """ RandCropImageV2 is different from RandCropImage,
     it will Select a cutting position randomly in a uniform distribution way,
@@ -544,7 +655,6 @@ class ToCHWImage(object):
         pass
 
     def __call__(self, img):
-        from PIL import Image
         if isinstance(img, Image.Image):
             img = np.array(img)
 
@@ -624,6 +734,27 @@ class ColorJitter(RawColorJitter):
             img = super()._apply_image(img)
             if isinstance(img, Image.Image):
                 img = np.asarray(img)
+        return img
+
+
+class PCAJitter(object):
+    """PCAJitter.
+    """
+
+    def __init__(self, alpha_std: float, eig_val: list, eig_vec: list):
+        self.alpha_std = alpha_std
+        self.eig_val = np.array(eig_val)
+        self.eig_vec = np.array(eig_vec)
+
+    def __call__(self, img):
+        if self.alpha_std == 0:
+            return img
+        alpha = np.random.normal(0, self.alpha_std, size=(1, 3))
+        alpha = np.repeat(alpha, 3, axis=0)
+        eig_val = np.repeat(self.eig_val, 3, axis=0)
+        rgb = np.sum(self.eig_vec * alpha * eig_val, axis=1)
+        for i in range(img.shape[0]):
+            img[i] = img[i] + rgb[2 - i]
         return img
 
 

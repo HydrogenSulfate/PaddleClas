@@ -26,6 +26,9 @@ from ppcls.data.preprocess.ops.operators import ResizeImage
 from ppcls.data.preprocess.ops.operators import CropImage
 from ppcls.data.preprocess.ops.operators import RandCropImage
 from ppcls.data.preprocess.ops.operators import RandCropImageV2
+from ppcls.data.preprocess.ops.operators import RandomResizeCrop
+from ppcls.data.preprocess.ops.operators import ShortScale
+from ppcls.data.preprocess.ops.operators import CenterCrop
 from ppcls.data.preprocess.ops.operators import RandFlipImage
 from ppcls.data.preprocess.ops.operators import NormalizeImage
 from ppcls.data.preprocess.ops.operators import ToCHWImage
@@ -37,6 +40,7 @@ from ppcls.data.preprocess.ops.operators import RandomHorizontalFlip
 from ppcls.data.preprocess.ops.operators import CropWithPadding
 from ppcls.data.preprocess.ops.operators import RandomInterpolationAugment
 from ppcls.data.preprocess.ops.operators import ColorJitter
+from ppcls.data.preprocess.ops.operators import PCAJitter
 from ppcls.data.preprocess.ops.operators import RandomCropImage
 from ppcls.data.preprocess.ops.operators import Padv2
 

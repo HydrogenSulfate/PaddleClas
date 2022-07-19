@@ -16,6 +16,7 @@
 
 import paddle
 import paddle.nn as nn
+import paddle.nn.functional as F
 import math
 
 
@@ -72,3 +73,132 @@ class ArcMargin(nn.Layer):
         mask = paddle.cast(x=(target > limit), dtype='float32')
         output = paddle.multiply(mask, x) + paddle.multiply((1.0 - mask), y)
         return output
+
+
+class ArcMarginP(nn.Layer):
+    def __init__(self,
+                 embedding_size,
+                 class_num,
+                 margin=0.5,
+                 scale=80.0):
+        super().__init__()
+        self.embedding_size = embedding_size
+        self.class_num = class_num
+        self.margin = margin
+        self.scale = scale
+
+        self.cos_m = math.cos(self.margin)
+        self.sin_m = math.sin(self.margin)
+        self.threshold = math.cos(math.pi - self.margin)
+        self.mm = math.sin(math.pi - self.margin) * self.margin
+        weight = self.create_parameter(
+            shape=[self.embedding_size, self.class_num],
+            is_bias=False,
+            default_initializer=paddle.nn.initializer.Constant(0)
+        )
+        self.add_parameter("weight", weight)
+        t = paddle.zeros([1, ])
+        self.register_buffer("t", t, persistable=True)
+
+    def normalize(self, x, axis):
+        x_norm = paddle.sqrt(paddle.sum(paddle.square(x), axis=axis, keepdim=True))
+        x = paddle.divide(x, x_norm)
+        return x
+
+    def forward(self, features, targets):
+        """ArcMarginP forward
+
+        Args:
+            features (Tensor): [B, F]
+            targets (Tensor): [B, ]
+
+        Returns:
+            Tensor: [B, C]
+        """
+        if targets is not None and targets.ndim >= 2:
+            targets = targets.reshape([-1, ])
+        # get cos(theta)
+        cos_theta = F.linear(F.normalize(features, axis=1), F.normalize(self.weight, axis=0))  # [B,C]
+        cos_theta = cos_theta.clip(min=-1, max=1)  # for numerical stability [B,C]
+
+        target_logit = cos_theta[paddle.arange(0, features.shape[0]), targets].reshape([-1, 1])  # [B, ]
+
+        sin_theta = paddle.sqrt(1.0 - paddle.square(target_logit))  # [B,C]
+        cos_theta_m = target_logit * self.cos_m - sin_theta * self.sin_m  # cos(target+margin)  # [B,C]
+        mask = cos_theta > cos_theta_m
+        final_target_logit = paddle.where(target_logit > self.threshold, cos_theta_m, target_logit - self.mm)  # [B, ]
+
+        hard_example = cos_theta[mask]  # [B,C]
+        with paddle.no_grad():
+            self.t = target_logit.mean() * 0.01 + (1 - 0.01) * self.t
+        cos_theta[mask] = hard_example * (self.t + hard_example)
+        cos_theta = cos_theta.put_along_axis(axis=1, indices=targets.reshape([-1, 1]), values=final_target_logit)
+        pred_class_logits = cos_theta * self.scale
+        return pred_class_logits
+
+
+# import torch
+# import torch.nn as tnn
+# import torch.nn.functional as tF
+# import numpy as np
+
+
+# class ArcfaceT(tnn.Module):
+#     """ Additive Angular Margin Loss """
+#     def __init__(self, in_feat, num_classes):
+#         super().__init__()
+#         self.in_feat = in_feat
+#         self._num_classes = num_classes
+#         self._s = 30
+#         self._m = 0.15
+
+#         self.cos_m = math.cos(self._m)
+#         self.sin_m = math.sin(self._m)
+#         self.threshold = math.cos(math.pi - self._m)
+#         self.mm = math.sin(math.pi - self._m) * self._m
+
+#         self.weight = torch.nn.Parameter(torch.ones(num_classes, in_feat)*0.01)
+#         self.register_buffer('t', torch.zeros(1))
+
+#     def forward(self, features, targets):
+#         # get cos(theta)
+#         cos_theta = tF.linear(tF.normalize(features), tF.normalize(self.weight))
+#         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
+
+#         target_logit = cos_theta[torch.arange(0, features.size(0)), targets].view(-1, 1)
+
+#         sin_theta = torch.sqrt(1.0 - torch.pow(target_logit, 2))
+#         cos_theta_m = target_logit * self.cos_m - sin_theta * self.sin_m  # cos(target+margin)
+#         mask = cos_theta > cos_theta_m
+#         final_target_logit = torch.where(target_logit > self.threshold, cos_theta_m, target_logit - self.mm)
+
+#         hard_example = cos_theta[mask]
+#         with torch.no_grad():
+#             self.t = target_logit.mean() * 0.01 + (1 - 0.01) * self.t
+#         cos_theta[mask] = hard_example * (self.t + hard_example)
+#         cos_theta.scatter_(1, targets.view(-1, 1).long(), final_target_logit)
+#         pred_class_logits = cos_theta * self._s
+#         return pred_class_logits
+
+
+# if __name__ == "__main__":
+#     arcp = ArcMarginP(512, 81313, 0.15, 30)
+#     arct = ArcfaceT(512, 81313)
+#     fake_feat = np.random.randn(4, 512).astype("float32")
+#     fake_label = np.random.randint(0, 81313, [4, ]).astype("int64")
+#     fake_feat_paddle = paddle.to_tensor(fake_feat)
+#     fake_feat_torch = torch.from_numpy(fake_feat)
+
+#     fake_label_paddle = paddle.to_tensor(fake_label)
+#     fake_label_torch = torch.from_numpy(fake_label)
+
+#     output_paddle = arcp(fake_feat_paddle, fake_label_paddle)
+#     output_torch = arct(fake_feat_torch, fake_label_torch)
+
+#     output_paddle = output_paddle.numpy()
+#     output_torch = output_torch.detach().numpy()
+
+#     print(f"output_paddle.mean={output_paddle.mean().item():.10f}")
+#     print(f"output_torch.mean={output_torch.mean().item():.10f}")
+#     print(f"mean-err={(output_paddle-output_torch).mean().item()}")
+#     print(np.allclose(output_paddle, output_torch))

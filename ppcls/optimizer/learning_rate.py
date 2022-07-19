@@ -15,9 +15,9 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
+import numpy as np
 from paddle.optimizer import lr
 from paddle.optimizer.lr import LRScheduler
-
 from ppcls.utils import logger
 
 
@@ -360,3 +360,37 @@ class MultiStepDecay(LRScheduler):
             if self.last_epoch < self.milestones[i]:
                 return self.base_lr * (self.gamma**i)
         return self.base_lr * (self.gamma**len(self.milestones))
+
+
+class CustomCosine(LRScheduler):
+    def __init__(self,
+                 learning_rate,
+                 epochs,
+                 warmup_epoch,
+                 step_each_epoch,
+                 warmup_factor,
+                 by_epoch,
+                 last_epoch=-1,
+                 verbose=False):
+        self.epochs = epochs
+        self.warmup_factor = warmup_factor
+        self.by_epoch = by_epoch
+        self.warmup_epoch = warmup_epoch
+        super(CustomCosine, self).__init__(learning_rate, last_epoch, verbose)
+
+    def lr_fun_cos(self, cur_epoch: int):
+        base_lr, max_epoch = self.base_lr, self.epochs
+        return 0.5 * base_lr * (1.0 + np.cos(np.pi * cur_epoch / max_epoch))
+
+    def get_lr(self):
+        lr = self.lr_fun_cos(self.last_epoch)
+        cur_epoch = self.last_epoch
+        if cur_epoch < self.warmup_epoch:
+            alpha = cur_epoch / self.warmup_epoch
+            warmup_factor = self.warmup_factor * (1.0 - alpha) + alpha
+            lr *= warmup_factor
+        return lr
+
+    def step(self):
+        self.last_lr = self.get_lr()
+        self.last_epoch += 1
