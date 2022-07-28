@@ -95,7 +95,7 @@ def load_distillation_model(model, pretrained_model):
             pretrained_model))
 
 
-def init_model(config, net, optimizer=None, loss: paddle.nn.Layer=None):
+def init_model(config, net, optimizer=None, loss: paddle.nn.Layer = None):
     """
     load model from checkpoint or pretrained_model
     """

@@ -1,7 +1,7 @@
 # global configs
 Global:
   checkpoints: null
-  pretrained_model: "/workspace/hesensen/DOLG_reprod/PaddleClas/oosd"
+  pretrained_model: "/workspace/hesensen/DOLG_reprod/PaddleClas/pretrained_model/DOLG_model_random_init"
   output_dir: "./output_GLDv2/"
   device: "gpu"
   save_interval: 1
@@ -11,8 +11,6 @@ Global:
   print_batch_step: 20
   use_visualdl: False
   eval_mode: "classification_dolg"
-  # retrieval_feature_from: "features" # 'backbone' or 'features'
-  # re_ranking: False
   # used for static mode and model export
   image_shape: [3, 512, 512]
   save_inference_dir: "./inference"

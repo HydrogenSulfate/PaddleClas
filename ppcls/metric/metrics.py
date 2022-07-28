@@ -57,7 +57,7 @@ class TopkAcc(AvgMetrics):
                 logger.warning(msg)
                 self.avg_meters.pop(f"top{k}")
                 continue
-            metric_dict[f"top{k}"] = paddle.metric.accuracy(x, label, k=k)
+            metric_dict[f"top{k}"] = paddle.metric.accuracy(x, label.reshape([-1, 1]) if label.ndim == 1 else label, k=k)
             self.avg_meters[f"top{k}"].update(metric_dict[f"top{k}"],
                                               x.shape[0])
 

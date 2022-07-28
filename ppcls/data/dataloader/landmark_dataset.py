@@ -51,8 +51,6 @@ class LandmarkDataset(CommonDataset):
                 assert os.path.exists(self.images[-1])
         logger.info(f"# of images {len(self.images)}")
         logger.info(f"# of labels {len(set(self.labels))}")
-        # self.images = self.images[:1000]
-        # self.labels = self.labels[:1000]
 
     def __getitem__(self, idx):
         try:

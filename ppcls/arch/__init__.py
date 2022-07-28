@@ -91,7 +91,7 @@ class RecModel(TheseusLayer):
             x = self.neck(x)
             out["neck"] = x
         out["features"] = x
-        if self.head is not None:
+        if self.head is not None and self.training:
             y = self.head(x, label)
             out["logits"] = y
         return out

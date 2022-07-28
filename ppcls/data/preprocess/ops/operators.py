@@ -764,8 +764,8 @@ class Pad(object):
     adapted from: https://pytorch.org/vision/stable/_modules/torchvision/transforms/transforms.html#Pad
     """
 
-    def __init__(self, padding: int, fill: int=0,
-                 padding_mode: str="constant"):
+    def __init__(self, padding: int, fill: int = 0,
+                 padding_mode: str = "constant"):
         self.padding = padding
         self.fill = fill
         self.padding_mode = padding_mode

@@ -391,6 +391,6 @@ class CustomCosine(LRScheduler):
             lr *= warmup_factor
         return lr
 
-    def step(self):
-        self.last_lr = self.get_lr()
-        self.last_epoch += 1
+    # def step(self):
+    #     self.last_lr = self.get_lr()
+    #     self.last_epoch += 1

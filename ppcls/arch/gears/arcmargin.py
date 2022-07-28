@@ -157,18 +157,21 @@ class ArcMarginP(nn.Layer):
 #         self.threshold = math.cos(math.pi - self._m)
 #         self.mm = math.sin(math.pi - self._m) * self._m
 
-#         self.weight = torch.nn.Parameter(torch.ones(num_classes, in_feat)*0.01)
+#         self.weight = torch.nn.Parameter(torch.ones(num_classes, in_feat)*0.00)
 #         self.register_buffer('t', torch.zeros(1))
 
 #     def forward(self, features, targets):
 #         # get cos(theta)
+#         print(targets.shape)
 #         cos_theta = tF.linear(tF.normalize(features), tF.normalize(self.weight))
 #         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
 
 #         target_logit = cos_theta[torch.arange(0, features.size(0)), targets].view(-1, 1)
-
+#         print(target_logit.shape)
 #         sin_theta = torch.sqrt(1.0 - torch.pow(target_logit, 2))
 #         cos_theta_m = target_logit * self.cos_m - sin_theta * self.sin_m  # cos(target+margin)
+#         print(cos_theta.shape)
+#         print(cos_theta_m.shape)
 #         mask = cos_theta > cos_theta_m
 #         final_target_logit = torch.where(target_logit > self.threshold, cos_theta_m, target_logit - self.mm)
 
@@ -183,22 +186,66 @@ class ArcMarginP(nn.Layer):
 
 # if __name__ == "__main__":
 #     arcp = ArcMarginP(512, 81313, 0.15, 30)
+#     arcp.weight.set_value(np.load("/workspace/hesensen/DOLG_reprod/PaddleClas/dbg.weight.npy"))
 #     arct = ArcfaceT(512, 81313)
-#     fake_feat = np.random.randn(4, 512).astype("float32")
-#     fake_label = np.random.randint(0, 81313, [4, ]).astype("int64")
+#     arct.weight.data = torch.from_numpy(np.load("/workspace/hesensen/DOLG_reprod/PaddleClas/dbg.weight.npy").T)
+#     arct = arct.cuda()
+
+#     topt = torch.optim.SGD(
+#         arct.parameters(),
+#         lr=0.005,
+#         momentum=0.9,
+#         weight_decay=1e-4,
+#         nesterov=True
+#     )
+#     popt = paddle.optimizer.Momentum(
+#         0.005,
+#         momentum=0.9,
+#         parameters=arcp.parameters(),
+#         use_nesterov=True,
+#         weight_decay=paddle.regularizer.L2Decay(1e-4)
+#     )
+
+#     fake_feat = np.load("/workspace/hesensen/DOLG_reprod/PaddleClas/dbg.features.npy")
+#     fake_label = np.load("/workspace/hesensen/DOLG_reprod/PaddleClas/dbg.targets.npy").reshape(-1)
+
 #     fake_feat_paddle = paddle.to_tensor(fake_feat)
-#     fake_feat_torch = torch.from_numpy(fake_feat)
+#     fake_feat_paddle.stop_gradient = False
+
+#     fake_feat_torch = torch.from_numpy(fake_feat).cuda()
+#     fake_feat_torch.requres_grad = True
 
 #     fake_label_paddle = paddle.to_tensor(fake_label)
-#     fake_label_torch = torch.from_numpy(fake_label)
+#     fake_label_torch = torch.from_numpy(fake_label).cuda()
 
-#     output_paddle = arcp(fake_feat_paddle, fake_label_paddle)
-#     output_torch = arct(fake_feat_torch, fake_label_torch)
+#     logits_paddle = arcp(fake_feat_paddle, fake_label_paddle)
+#     logits_torch = arct(fake_feat_torch, fake_label_torch)
 
-#     output_paddle = output_paddle.numpy()
-#     output_torch = output_torch.detach().numpy()
+#     loss_paddle = paddle.nn.functional.cross_entropy(logits_paddle, fake_label_paddle)
+#     loss_torch = torch.nn.functional.cross_entropy(logits_torch, fake_label_torch)
+#     print(f"{loss_paddle.item():.20f}")
+#     print(f"{loss_torch.item():.20f}")
 
-#     print(f"output_paddle.mean={output_paddle.mean().item():.10f}")
-#     print(f"output_torch.mean={output_torch.mean().item():.10f}")
-#     print(f"mean-err={(output_paddle-output_torch).mean().item()}")
-#     print(np.allclose(output_paddle, output_torch))
+#     loss_paddle.backward()
+#     loss_torch.backward()
+
+#     grad_paddle = arcp.weight.grad.T.numpy()
+#     grad_torch = arct.weight.grad.cpu().numpy()
+
+#     print(f"{grad_paddle.min():.10f} {grad_paddle.mean():.10f} {grad_paddle.max():.10f}")
+#     print(f"{grad_torch.min():.10f} {grad_torch.mean():.10f} {grad_torch.max():.10f}")
+
+#     # grad_error = grad_paddle - grad_torch
+#     print(grad_paddle.shape, grad_paddle.dtype)
+#     print(grad_torch.shape, grad_torch.dtype)
+
+#     topt.step()
+#     popt.step()
+
+#     topt.zero_grad()
+#     popt.clear_grad()
+
+#     print(f"{arcp.weight.min().item():.10f} {arcp.weight.mean().item():.10f} {arcp.weight.max().item():.10f}")
+#     print(f"{arct.weight.min().item():.10f} {arct.weight.mean().item():.10f} {arct.weight.max().item():.10f}")
+
+#     print(np.allclose(arcp.weight.numpy().T, arct.weight.detach().cpu().numpy()))
