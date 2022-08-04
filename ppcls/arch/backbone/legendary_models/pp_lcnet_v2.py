@@ -23,8 +23,14 @@ from paddle.regularizer import L2Decay
 from paddle.nn.initializer import KaimingNormal, Constant, Normal, Uniform, KaimingUniform
 
 from ppcls.arch.backbone.base.theseus_layer import TheseusLayer
+from ppcls.arch.backbone.base.theseus_layer import SpatialAttention
+from ppcls.arch.backbone.base.theseus_layer import RCCAModule
 from ppcls.utils.save_load import load_dygraph_pretrain, load_dygraph_pretrain_from_url
 from ppcls.utils import logger
+
+# from matplotlib import pyplot as plt
+# import numpy as np
+# from visualdl import LogWriter
 
 MODEL_URLS = {
     "PPLCNetV2_base":
@@ -51,6 +57,81 @@ def make_divisible(v, divisor=8, min_value=None):
     return new_v
 
 
+class CrossMHSA(nn.Layer):
+    """Cross Multi-Head Self Attention Module
+
+    Args:
+        in_dims (int): channels of input features
+        n_dims (int): channels of input features
+        width (int, optional): _description_. Defaults to 14.
+        height (int, optional): _description_. Defaults to 14.
+        heads (int, optional): _description_. Defaults to 4.
+    Return:
+        Tensor: [b,n_dims,h,w]
+    """
+    def __init__(self, in_dims: int, n_dims: int, width=14, height=14, heads=4):
+        super(CrossMHSA, self).__init__()
+        self.heads = heads
+        if in_dims != n_dims:
+            self.down = nn.Conv2D(in_dims, n_dims, kernel_size=1, bias_attr=False)
+            self.up = nn.Conv2D(n_dims, in_dims, kernel_size=1, bias_attr=False)
+        self.query = nn.Conv2D(n_dims, n_dims, kernel_size=1)
+        self.key = nn.Conv2D(n_dims, n_dims, kernel_size=1)
+        self.value = nn.Conv2D(n_dims, n_dims, kernel_size=1)
+
+        self.rel_h = self.create_parameter(
+            shape=[1, heads, n_dims // heads, 1, height],
+            default_initializer=paddle.nn.initializer.Normal()
+        )
+        self.rel_w = self.create_parameter(
+            shape=[1, heads, n_dims // heads, width, 1],
+            default_initializer=paddle.nn.initializer.Normal()
+        )
+
+        self.softmax = nn.Softmax(axis=-1)
+
+    def forward(self, query_fea, target_fea):
+        if hasattr(self, 'down'):
+            query_fea_down = self.down(query_fea)
+        else:
+            query_fea_down = query_fea
+        n_batch, C, width, height = query_fea_down.shape
+        q = self.query(query_fea_down).reshape([n_batch, self.heads, C // self.heads, -1])
+        k = self.key(target_fea).reshape([n_batch, self.heads, C // self.heads, -1])
+        v = self.value(target_fea).reshape([n_batch, self.heads, C // self.heads, -1])
+
+        content_content = paddle.matmul(q.transpose([0, 1, 3, 2]), k)
+
+        content_position = (self.rel_h + self.rel_w).reshape([1, self.heads, C // self.heads, -1]).transpose([0, 1, 3, 2])
+        content_position = paddle.matmul(content_position, q)
+
+        energy = content_content + content_position
+        attention = self.softmax(energy)
+
+        out = paddle.matmul(v, attention.transpose([0, 1, 3, 2]))
+        out = out.reshape([n_batch, C, width, height])
+        if hasattr(self, 'up'):
+            out = self.up(out)
+        return out + query_fea
+
+
+class IBN(nn.Layer):
+    def __init__(self, planes):
+        super(IBN, self).__init__()
+        half1 = int(planes / 2)
+        self.half = half1
+        half2 = planes - half1
+        self.IN = nn.InstanceNorm2D(half1, weight_attr=ParamAttr(regularizer=L2Decay(0.0)), bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
+        self.BN = nn.BatchNorm2D(half2, weight_attr=ParamAttr(regularizer=L2Decay(0.0)), bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
+
+    def forward(self, x):
+        split = paddle.split(x, 2, 1)
+        out1 = self.IN(split[0])
+        out2 = self.BN(split[1])
+        out = paddle.concat([out1, out2], axis=1)
+        return out
+
+
 class ConvBNLayer(TheseusLayer):
     def __init__(self,
                  in_channels,
@@ -58,7 +139,8 @@ class ConvBNLayer(TheseusLayer):
                  kernel_size,
                  stride,
                  groups=1,
-                 use_act=True):
+                 use_act=True,
+                 ibn=False):
         super().__init__()
         self.use_act = use_act
         self.conv = Conv2D(
@@ -75,12 +157,18 @@ class ConvBNLayer(TheseusLayer):
             out_channels,
             weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
             bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
+        if ibn:
+            self.ibn = IBN(out_channels)
+            logger.info("use IBN")
         if self.use_act:
             self.act = nn.ReLU()
 
     def forward(self, x):
         x = self.conv(x)
-        x = self.bn(x)
+        if hasattr(self, 'ibn'):
+            x = self.ibn(x)
+        else:
+            x = self.bn(x)
         if self.use_act:
             x = self.act(x)
         return x
@@ -125,7 +213,8 @@ class RepDepthwiseSeparable(TheseusLayer):
                  split_pw=False,
                  use_rep=False,
                  use_se=False,
-                 use_shortcut=False):
+                 use_shortcut=False,
+                 ibn=False):
         super().__init__()
         self.is_repped = False
         # print(f"stride={stride}")
@@ -161,7 +250,8 @@ class RepDepthwiseSeparable(TheseusLayer):
                 out_channels=in_channels,
                 kernel_size=dw_size,
                 stride=stride,
-                groups=in_channels)
+                groups=in_channels,
+                ibn=ibn)
 
         self.act = nn.ReLU()
 
@@ -326,18 +416,18 @@ class SpatialAttention2d(nn.Layer):
         att : softplus attention score
         """
         if self.with_aspp:
-            x = self.aspp(x)  # 512
-        x = self.conv1(x)  # 512->512
-        x = self.bn(x)
+            x = self.aspp(x)  # [b,c,h,w]
+        x = self.conv1(x)  # [b,c,h,w]
+        x = self.bn(x)  # [b,c,h,w]
 
-        feature_map_norm = F.normalize(x, p=2, axis=1)
+        feature_map_norm = F.normalize(x, p=2, axis=1)  # [b,c,h,w]
 
-        x = self.act1(x)
-        x = self.conv2(x)
+        x = self.act1(x)  # [b,c,h,w]
+        x = self.conv2(x)  # [b,1,h,w]
 
-        att_score = self.softplus(x)
-        att = paddle.expand_as(att_score, feature_map_norm)
-        x = att * feature_map_norm
+        att_score = self.softplus(x)  # [b,1,h,w]
+        att = paddle.expand_as(att_score, feature_map_norm)  # [b,c,h,w]
+        x = att * feature_map_norm  # [b,c,h,w]
         return x, att_score
 
 
@@ -397,17 +487,30 @@ class PPLCNetV2(TheseusLayer):
                  use_last_conv=True,
                  class_expand=1280,
                  use_dolg=False,
+                 fuse_from="f3",
                  with_aspp=False,
                  torch_style_init=False,
+                 sa=False,
                  expand_dropout=True,
                  expand_relu=True,
                  fc_dropout=False,
-                 fc_relu=False):
+                 fc_relu=False,
+                 cc_att=False,
+                 visualize=False,
+                 #  fuse_map=False,
+                 #  fuse_map_from=None,
+                 use_ibn=False,
+                 return_multi_res=False,
+                 use_mhsa=False,
+                 use_cross_mhsa=False,
+                 **kwargs):
         super().__init__()
         self.scale = scale
         self.use_last_conv = use_last_conv
         self.class_expand = class_expand
         self.last_stride = last_stride
+        # 特征图的直方图可视化
+        self.visualize = visualize
 
         self.stem = nn.Sequential(* [
             ConvBNLayer(
@@ -437,24 +540,30 @@ class PPLCNetV2(TheseusLayer):
                         split_pw=split_pw,
                         use_rep=use_rep,
                         use_se=use_se,
-                        use_shortcut=use_shortcut)
+                        use_shortcut=use_shortcut,
+                        ibn=(use_ibn and (depth_idx < len(NET_CONFIG) - 1) and i == 0))
                     for i in range(depths[depth_idx])
                 ]))
+        if use_ibn:
+            logger.info(f"{'=' * 10} Using IBN in 前三个stage的第一个RepDepthwiseSeparable的dwconv")
         # last stride
         if last_stride == 1:
             logger.info(f"{'=' * 10} Using last_stride=1(set pplcnet.laststride to 1)")
 
         # dolg
         self.use_dolg = use_dolg
+        self.fuse_from = fuse_from
         if use_dolg:
-            logger.info(f"{'=' * 10} Using DOLG to fuse stage3 and stage4's output, with_aspp={with_aspp}")
+            logger.info(f"{'=' * 10} Using DOLG to fuse {fuse_from} and stage4's output, with_aspp={with_aspp}")
             self.pool_global = AdaptiveAvgPool2D(1)
             self.stage3_channels = make_divisible(NET_CONFIG["stage3"][0] * 2 * scale)
+            if fuse_from == "f4":
+                self.stage3_channels = make_divisible(NET_CONFIG["stage4"][0] * 2 * scale)
             self.stage4_channels = make_divisible(NET_CONFIG["stage4"][0] * 2 * scale)
-            assert self.stage3_channels == 512 and self.stage4_channels == 1024, \
+            assert (fuse_from == "f3" and self.stage3_channels == 512 or fuse_from == "f4" and self.stage3_channels == 1024) and self.stage4_channels == 1024, \
                 f"assert self.stage3_channels == {self.stage3_channels} and self.stage4_channels == {self.stage4_channels}"
 
-            self.fc_t = nn.Linear(self.stage4_channels, self.stage3_channels, bias_attr=True)
+            self.fc_t = nn.Linear(self.stage4_channels, 512, bias_attr=True)
 
             if torch_style_init:
                 KaimingUniform(fan_in=6*self.stage4_channels)(self.fc_t.weight)
@@ -463,7 +572,16 @@ class PPLCNetV2(TheseusLayer):
                     bound = 1.0 / math.sqrt(fan_in)
                     Uniform(-bound, bound)(self.fc_t.bias)
 
-            self.localmodel = SpatialAttention2d(self.stage3_channels, self.stage3_channels, "relu", with_aspp)
+            self.localmodel = SpatialAttention2d(
+                self.stage3_channels,
+                512,
+                "relu",
+                with_aspp,
+                torch_style_init=torch_style_init
+            )
+            if sa:
+                self.localmodel = SpatialAttention(kernel_size=7)
+                logger.info(f"{'=' * 10} Using SpatialAttention(kernel_size=7, with_aspp={with_aspp}) for local model")
             self.pool_local = nn.AdaptiveAvgPool2D((1, 1))
 
         self.avg_pool = AdaptiveAvgPool2D(1)
@@ -509,8 +627,44 @@ class PPLCNetV2(TheseusLayer):
             else:
                 self.dropout = nn.Identity()
                 logger.info(f"{'=' * 10} use self.fc without Dropout(dropout_prob={dropout_prob:.1f})")
+        self.cc_att = cc_att
+        if cc_att:
+            self.criss_cross_attention = RCCAModule(
+                make_divisible(NET_CONFIG["stage4"][0] * 2 * scale),
+                make_divisible(NET_CONFIG["stage4"][0] * 2 * scale) // 2,
+                reduction=8,
+                recurrence=2
+            )
+            logger.info(f"{'=' * 10} use criss-cross attention")
 
-    def _globalmodel_forward(self, x):
+        self.use_mhsa = use_mhsa
+        if use_mhsa:
+            self.mhsa = CrossMHSA(
+                in_dims=make_divisible(NET_CONFIG["stage4"][0] * 2 * scale),
+                n_dims=make_divisible(NET_CONFIG["stage4"][0] * 2 * scale),
+                width=14,
+                height=14,
+                heads=4
+            )
+            logger.info(f"{'=' * 10} use MHSA, 14x14, heads=4")
+
+        self.use_cross_mhsa = use_cross_mhsa
+        if use_cross_mhsa:
+            self.cross_mhsa = CrossMHSA(
+                in_dims=make_divisible(NET_CONFIG["stage4"][0] * 2 * scale),
+                n_dims=make_divisible(NET_CONFIG["stage3"][0] * 2 * scale),
+                width=14,
+                height=14,
+                heads=4
+            )
+            logger.info(f"{'=' * 10} use CrossMHSA, 14x14, heads=4")
+
+        self.return_multi_res = return_multi_res
+        if return_multi_res:
+            self.fc_s3 = Linear(in_features // 2, class_num)
+            logger.info(f"{'=' * 10} use return_multi_res")
+
+    def _globalmodel_forward(self, x, fuse_from="f3"):
         """
         [B, 64, 112, 112] <- stem
         [B, 128, 56, 56] <- stage1
@@ -519,16 +673,21 @@ class PPLCNetV2(TheseusLayer):
         [B, 1024, 14, 14] <- stage4
         """
         x = self.stem(x)
-        x = self.stages[0](x)
-        x = self.stages[1](x)
+        x = self.stages[0](x)  # 2 layer
+        x = self.stages[1](x)  # 2 layer
 
         # get stage3 and stage4' output
-        f3 = self.stages[2](x)
-        f4 = self.stages[3](f3)
-        return f3, f4
+        f3 = self.stages[2](x)  # 6 layer
+        f4 = self.stages[3](f3)  # 2 layer
+        if fuse_from == "f3":
+            return f3, f4
+        elif fuse_from == "f4":
+            return f4, f4
+        else:
+            raise NotImplementedError(f"fuse_from({fuse_from}) invalid!")
 
     def forward_dolg(self, x):
-        f3, f4 = self._globalmodel_forward(x)
+        f3, f4 = self._globalmodel_forward(x, fuse_from=self.fuse_from)
         fl, _ = self.localmodel(f3)
 
         fg_o = self.pool_global(f4)
@@ -543,7 +702,7 @@ class PPLCNetV2(TheseusLayer):
         orth_comp = fl - proj
 
         fo = self.pool_local(orth_comp)
-        fo = fo.reshape([fo.shape[0], self.stage3_channels])
+        fo = fo.reshape([fo.shape[0], 512])
 
         final_feat = paddle.concat([fg, fo], axis=1)
         final_feat = final_feat.unsqueeze(-1).unsqueeze(-1)
@@ -552,10 +711,30 @@ class PPLCNetV2(TheseusLayer):
     def forward(self, x):
         if self.use_dolg:
             x = self.forward_dolg(x)
+        elif self.return_multi_res:
+            f3, x = self._globalmodel_forward(x, "f3")  # [512,14,14], [1024,14,14]
+            f3 = self.avg_pool(f3)
+            f3 = self.fatten(f3)
+            f3 = self.fc_s3(f3)
         else:
             x = self.stem(x)
-            for stage in self.stages:
-                x = stage(x)
+            f1 = self.stages[0](x)
+            f2 = self.stages[1](f1)
+            f3 = self.stages[2](f2)
+            f4 = self.stages[3](f3)
+            x = f4
+            # for stage in self.stages:
+            #     x = stage(x)
+            # if self.visualize:
+            #     with LogWriter(logdir="./log/PPLCNetV2_noRE/eval") as writer:
+            #         data = x.numpy()
+            #         writer.add_histogram(tag=f"{'train' if self.training else 'eval'} stage4 output", values=data, step=0, buckets=1000)
+            if self.cc_att:
+                x = self.criss_cross_attention(x)
+            if self.use_mhsa:
+                x = self.mhsa(x, x)
+            elif self.use_cross_mhsa:
+                x = self.cross_mhsa(f4, f3)
             x = self.avg_pool(x)
         if self.use_last_conv:
             x = self.last_conv(x)  # 1024->in_fea
@@ -567,7 +746,13 @@ class PPLCNetV2(TheseusLayer):
             x = self.act(x)
         if self.fc_dropout:
             x = self.dropout(x)
-        return x
+        # with LogWriter(logdir="./log/PPLCNetV2_noRE/eval") as writer:
+        #     data = x.numpy()
+        #     writer.add_histogram(tag=f"{'train' if self.training else 'eval'} fc_output", values=data, step=0, buckets=1000)
+        if self.return_multi_res:
+            return f3, x
+        else:
+            return x
 
 
 def _load_pretrained(pretrained, model, model_url, use_ssld):
@@ -602,4 +787,14 @@ def PPLCNetV2_base(pretrained=False, use_ssld=False, **kwargs):
     model = PPLCNetV2(
         scale=1.0, depths=[2, 2, 6, 2], dropout_prob=dropout_prob, **kwargs)
     _load_pretrained(pretrained, model, MODEL_URLS["PPLCNetV2_base"], use_ssld)
+    if 'use_ibn' in kwargs and 'ibn_init' in kwargs:
+        for m in model.sublayers():
+            if hasattr(m, 'ibn'):
+                num_c = m.bn.weight.shape[0]
+                num_c = num_c // 2
+                m.ibn.IN.scale.set_value(m.bn.weight[:num_c])
+                m.ibn.BN.weight.set_value(m.bn.weight[num_c:])
+                m.ibn.BN.bias.set_value(m.bn.bias[num_c:])
+                logger.info(f"{'=' * 10} IBN_init")
+        logger.info(f"{'=' * 10} Using IBN and IBN_init")
     return model

@@ -44,6 +44,7 @@ from ppcls.data.preprocess.ops.operators import RandomInterpolationAugment
 from ppcls.data.preprocess.ops.operators import ColorJitter
 from ppcls.data.preprocess.ops.operators import RandomCropImage
 from ppcls.data.preprocess.ops.operators import Padv2
+from ppcls.data.preprocess.ops.operators import Perspective
 
 from ppcls.data.preprocess.batch_ops.batch_operators import MixupOperator, CutmixOperator, OpSampler, FmixOperator
 from ppcls.data.preprocess.batch_ops.batch_operators import ClassWiseMixupOperator

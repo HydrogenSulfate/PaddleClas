@@ -48,4 +48,9 @@ class BNNeck(nn.Layer):
     def forward(self, x):
         x = self.flatten(x)
         x = self.feat_bn(x)
+        # from visualdl import LogWriter
+        # with LogWriter(logdir="./log/PPLCNetV2_noRE/eval") as writer:
+        #     data = x.numpy()
+        #     writer.add_histogram(tag=f"{'train' if self.training else 'eval'} final features", values=data, step=0, buckets=1000)
+        # exit(0)
         return x

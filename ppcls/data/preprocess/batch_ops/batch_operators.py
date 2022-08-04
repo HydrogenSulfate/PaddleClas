@@ -92,6 +92,45 @@ class MixupOperator(BatchOperator):
         return list(zip(imgs, targets))
 
 
+class ClassWiseMixupOperator(BatchOperator):
+    """ ClassWiseMixupOperator operator
+    适用于PKSampler之类的，简单地在每个类内做mixup
+    """
+
+    def __init__(self, num_instance, alpha: float = 1.):
+        """Build Mixup operator
+
+        Args:
+            alpha (float, optional): The parameter alpha of mixup. Defaults to 1..
+
+        Raises:
+            Exception: The value of parameter is illegal.
+        """
+        if alpha <= 0:
+            raise Exception(
+                f"Parameter \"alpha\" of Mixup should be greater than 0. \"alpha\": {alpha}."
+            )
+
+        self._alpha = alpha
+        self.num_instance = num_instance
+
+    def __call__(self, batch):
+        imgs, labels, bs = self._unpack(batch)
+        num_ids = bs // self.num_instance
+
+        batch_perm = []
+        for i in range(num_ids):
+            inner_perm = np.arange(i * self.num_instance, (i + 1) * self.num_instance)  # [ni, ]
+            inner_perm = np.random.permutation(inner_perm)
+            batch_perm.append(inner_perm)
+        idx = np.concatenate(batch_perm, axis=0)  # [bs, ]
+
+        lam = np.random.beta(self._alpha, self._alpha)
+        imgs = lam * imgs + (1 - lam) * imgs[idx]
+        # targets = self._mix_target(labels, labels[idx], lam)  # 由于只在类内做mixup，因此label不会变化
+        return list(zip(imgs, labels))
+
+
 class CutmixOperator(BatchOperator):
     """ Cutmix operator
     reference: https://arxiv.org/abs/1905.04899

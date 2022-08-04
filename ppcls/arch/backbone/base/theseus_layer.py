@@ -406,6 +406,77 @@ class GeneralizedMeanPoolingP(GeneralizedMeanPooling):
         self.add_parameter("p", self.p)
 
 
+class GeneralizedMeanPoolingScale(GeneralizedMeanPoolingP):
+    """增强数值大小，无论正负
+    """
+    def __init__(self, norm=3, output_size=(1, 1), eps=1e-6, *args, **kwargs):
+        super(GeneralizedMeanPoolingP, self).__init__(norm, output_size, eps)
+        self.p = self.create_parameter(
+            shape=(1, ),
+            default_initializer=nn.initializer.Constant(1. * norm)
+        )
+        self.add_parameter("p", self.p)
+
+    def forward(self, x):
+        x_abs = paddle.abs(x)
+        x_sign = paddle.sign(x)
+        return nn.functional.adaptive_avg_pool2d(x_abs.pow(self.p) * x_sign, self.output_size).pow(1. / self.p)
+
+
+class GeneralizedMeanPoolingMin(GeneralizedMeanPoolingP):
+    """增强数值大小，无论正负
+    """
+    def __init__(self, norm=3, output_size=(1, 1), eps=1e-6, *args, **kwargs):
+        super(GeneralizedMeanPoolingP, self).__init__(norm, output_size, eps)
+        self.p = self.create_parameter(
+            shape=(1, ),
+            default_initializer=nn.initializer.Constant(1. * norm)
+        )
+        self.add_parameter("p", self.p)
+        self.bn = nn.BatchNorm2D(1024, bias_attr=paddle.ParamAttr(learning_rate=1e-20))
+
+    def forward(self, x):
+        x_min = paddle.min(x, axis=[2, 3], keepdim=True)
+        x = (x - x_min).pow(self.p)
+        x = nn.functional.adaptive_avg_pool2d(x, self.output_size).pow(1. / self.p) + x_min
+        return self.bn(x)
+
+
+class GeneralizedMeanPoolingAugPos(GeneralizedMeanPoolingP):
+    """增强正数数值，保留负数数值
+    """
+    def __init__(self, norm=3, output_size=(1, 1), eps=1e-6, *args, **kwargs):
+        super(GeneralizedMeanPoolingP, self).__init__(norm, output_size, eps)
+        self.p = self.create_parameter(
+            shape=(1, ),
+            default_initializer=nn.initializer.Constant(1. * norm)
+        )
+        self.add_parameter("p", self.p)
+
+    def forward(self, x):
+        x_aug = x.clip(min=self.eps).pow(self.p)
+        return nn.functional.adaptive_avg_pool2d(paddle.where(x < self.eps, x, x_aug), self.output_size).pow(1. / self.p)
+
+
+class SpatialAttention(nn.Layer):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+
+        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
+        padding = 3 if kernel_size == 7 else 1
+
+        self.conv1 = nn.Conv2D(2, 1, kernel_size, padding=padding, bias_attr=False)  # 7,3     3,1
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = paddle.mean(x, axis=1, keepdim=True)
+        max_out = paddle.max(x, axis=1, keepdim=True)
+        att = paddle.concat([avg_out, max_out], axis=1)
+        att = self.conv1(att)
+        att = self.sigmoid(att)
+        return x * att, att
+
+
 class RGAModule(nn.Layer):
     def __init__(self, in_channel, in_spatial, use_spatial=True, use_channel=True, cha_ratio=8, spa_ratio=8, down_ratio=8):
         super(RGAModule, self).__init__()

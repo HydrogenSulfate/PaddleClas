@@ -22,7 +22,7 @@ import paddle.nn.functional as F
 from ppcls.arch.utils import get_param_attr_dict
 
 class CircleMargin(nn.Layer):
-    def __init__(self, embedding_size, class_num, margin, scale):
+    def __init__(self, embedding_size, class_num, margin, scale, **kwargs):
         super(CircleMargin, self).__init__()
         self.scale = scale
         self.margin = margin
@@ -31,21 +31,24 @@ class CircleMargin(nn.Layer):
 
         self.weight = self.create_parameter(
             shape=[self.embedding_size, self.class_num],
+            attr=get_param_attr_dict(kwargs.get('attr', None)),
             is_bias=False,
             default_initializer=paddle.nn.initializer.XavierNormal())
 
     def forward(self, input, label):
-        feat_norm = paddle.sqrt(
-            paddle.sum(paddle.square(input), axis=1, keepdim=True))
-        input = paddle.divide(input, feat_norm)
+        # feat_norm = paddle.sqrt(
+        #     paddle.sum(paddle.square(input), axis=1, keepdim=True))
+        # input = paddle.divide(input, feat_norm)
+        input = F.normalize(input)
 
-        weight_norm = paddle.sqrt(
-            paddle.sum(paddle.square(self.weight), axis=0, keepdim=True))
-        weight = paddle.divide(self.weight, weight_norm)
+        # weight_norm = paddle.sqrt(
+        #     paddle.sum(paddle.square(self.weight), axis=0, keepdim=True))
+        # weight = paddle.divide(self.weight, weight_norm)
+        weight = F.normalize(self.weight, axis=0)
 
         logits = paddle.matmul(input, weight)  # [-1,1]
         if not self.training or label is None:
-            return logits
+            return self.scale * logits  # [-s,s]
 
         alpha_p = paddle.clip(-logits.detach() + 1 + self.margin, min=0.)
         alpha_n = paddle.clip(logits.detach() + self.margin, min=0.)
