@@ -86,10 +86,19 @@ class RecModel(TheseusLayer):
         out = dict()
         x = self.backbone(x)
         out["backbone"] = x
+
         if self.neck is not None:
             x = self.neck(x)
-            out["neck"] = x
-        out["features"] = x
+            if isinstance(x, dict):
+                out.update(x)
+            else:
+                out["neck"] = x
+
+        if isinstance(x, dict):
+            out.update(x)
+        else:
+            out["features"] = x
+
         if self.head is not None:
             y = self.head(x, label)
             out["logits"] = y
