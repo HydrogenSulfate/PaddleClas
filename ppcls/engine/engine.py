@@ -82,6 +82,7 @@ class Engine(object):
         self.eval_func = getattr(evaluation, self.eval_mode + "_eval")
 
         self.use_dali = self.config['Global'].get("use_dali", False)
+        self.use_dali_eval = self.config['Global'].get("use_dali_eval", False)
 
         # for visualdl
         self.vdl_writer = None
@@ -131,8 +132,8 @@ class Engine(object):
                         self.use_dali)
                 else:
                     self.gallery_dataloader = build_dataloader(
-                        self.config["DataLoader"]["Eval"], "Gallery",
-                        self.device, self.use_dali)
+                        self.device, self.use_dali_eval)
+                        self.device, self.use_dali_eval)
                     self.query_dataloader = build_dataloader(
                         self.config["DataLoader"]["Eval"], "Query",
                         self.device, self.use_dali)

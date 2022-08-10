@@ -37,7 +37,7 @@ class MultiLayer(nn.Layer):
         self.layer_list = nn.LayerList(layer_list)
         self.output_name_list = output_name_list
 
-    def forward(self, input, label=None) -> List[Tensor]:
+    def forward(self, input, label=None) -> Dict[str, Tensor]:
         output_dict = {}
         for i in range(len(self.layer_list)):
             output = self.layer_list[i](input) if label is None else self.layer_list[i](input, label)

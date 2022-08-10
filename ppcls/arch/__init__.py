@@ -85,7 +85,11 @@ class RecModel(TheseusLayer):
     def forward(self, x, label=None):
         out = dict()
         x = self.backbone(x)
-        out["backbone"] = x
+        if isinstance(x, dict):
+            out.update(x)
+            x = out["backbone"]
+        else:
+            out["backbone"] = x
 
         if self.neck is not None:
             x = self.neck(x)
@@ -95,7 +99,8 @@ class RecModel(TheseusLayer):
                 out["neck"] = x
 
         if isinstance(x, dict):
-            out.update(x)
+            if self.neck is None:
+                out.update(x)
         else:
             out["features"] = x
 

@@ -713,8 +713,9 @@ class PPLCNetV2(TheseusLayer):
             x = self.forward_dolg(x)
         elif self.return_multi_res:
             f3, x = self._globalmodel_forward(x, "f3")  # [512,14,14], [1024,14,14]
+            x = self.avg_pool(x)
             f3 = self.avg_pool(f3)
-            f3 = self.fatten(f3)
+            f3 = self.flatten(f3)
             f3 = self.fc_s3(f3)
         else:
             x = self.stem(x)
