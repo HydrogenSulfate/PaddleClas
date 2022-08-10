@@ -118,11 +118,10 @@ class CrossMHSA(nn.Layer):
 class IBN(nn.Layer):
     def __init__(self, planes):
         super(IBN, self).__init__()
-        half1 = int(planes / 2)
-        self.half = half1
-        half2 = planes - half1
-        self.IN = nn.InstanceNorm2D(half1, weight_attr=ParamAttr(regularizer=L2Decay(0.0)), bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
-        self.BN = nn.BatchNorm2D(half2, weight_attr=ParamAttr(regularizer=L2Decay(0.0)), bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
+        self.half1 = int(planes / 2)
+        self.half2 = planes - self.half1
+        self.IN = nn.InstanceNorm2D(self.half1, weight_attr=ParamAttr(regularizer=L2Decay(0.0)), bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
+        self.BN = nn.BatchNorm2D(self.half2, weight_attr=ParamAttr(regularizer=L2Decay(0.0)), bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
 
     def forward(self, x):
         split = paddle.split(x, 2, 1)
@@ -130,6 +129,14 @@ class IBN(nn.Layer):
         out2 = self.BN(split[1])
         out = paddle.concat([out1, out2], axis=1)
         return out
+
+    def load_params_from_bn(self, bn):
+        w_in, w_bn = bn.weight.split([self.half1, self.half2])  # c1,c2
+        b_in, b_bn = bn.bias.split([self.half1, self.half2])  # c1, c2
+        self.IN.scale.set_value(w_in)
+        self.IN.bias.set_value(b_in)
+        self.BN.weight.set_value(w_bn)
+        self.BN.weight.set_value(w_bn)
 
 
 class ConvBNLayer(TheseusLayer):
@@ -140,7 +147,8 @@ class ConvBNLayer(TheseusLayer):
                  stride,
                  groups=1,
                  use_act=True,
-                 ibn=False):
+                 ibn=False,
+                 ibn_b=False):
         super().__init__()
         self.use_act = use_act
         self.conv = Conv2D(
@@ -159,9 +167,17 @@ class ConvBNLayer(TheseusLayer):
             bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
         if ibn:
             self.ibn = IBN(out_channels)
-            logger.info("use IBN")
+        elif ibn_b:
+            self.bn = nn.InstanceNorm2D(out_channels)
+            logger.info("Insert IBN-B Module")
+
         if self.use_act:
             self.act = nn.ReLU()
+
+    def init_ibn_from_bn(self):
+        if hasattr(self, 'ibn'):
+            self.ibn.load_params_from_bn(self.bn)
+            logger.info("init IBN with BN's weight/bias")
 
     def forward(self, x):
         x = self.conv(x)
@@ -214,7 +230,9 @@ class RepDepthwiseSeparable(TheseusLayer):
                  use_rep=False,
                  use_se=False,
                  use_shortcut=False,
-                 ibn=False):
+                 ibn=False,
+                 after_dw=False,
+                 ibn_b=False):
         super().__init__()
         self.is_repped = False
         # print(f"stride={stride}")
@@ -235,7 +253,8 @@ class RepDepthwiseSeparable(TheseusLayer):
                     kernel_size=kernel_size,
                     stride=stride,
                     groups=in_channels,
-                    use_act=False)
+                    use_act=False,
+                    ibn=ibn if not after_dw else False)
                 self.dw_conv_list.append(dw_conv)
             self.dw_conv = nn.Conv2D(
                 in_channels=in_channels,
@@ -251,7 +270,7 @@ class RepDepthwiseSeparable(TheseusLayer):
                 kernel_size=dw_size,
                 stride=stride,
                 groups=in_channels,
-                ibn=ibn)
+                ibn=ibn if not after_dw else False)
 
         self.act = nn.ReLU()
 
@@ -269,13 +288,21 @@ class RepDepthwiseSeparable(TheseusLayer):
                 in_channels=int(out_channels * pw_ratio),
                 kernel_size=1,
                 out_channels=out_channels,
-                stride=1)
+                stride=1,
+                ibn=ibn if after_dw else False)
         else:
             self.pw_conv = ConvBNLayer(
                 in_channels=in_channels,
                 kernel_size=1,
                 out_channels=out_channels,
-                stride=1)
+                stride=1,
+                ibn=ibn if after_dw else False)
+
+        if ibn_b:
+            self.IN = nn.InstanceNorm2D(out_channels)
+            logger.info("Insert IBN-B Module")
+        else:
+            self.IN = None
 
     def forward(self, x):
         if self.use_rep:
@@ -299,6 +326,8 @@ class RepDepthwiseSeparable(TheseusLayer):
             x = self.pw_conv(x)
         if self.use_shortcut:
             x = x + input_x
+        if self.IN is not None:
+            x = self.IN(x)
         return x
 
     def rep(self):
@@ -499,7 +528,9 @@ class PPLCNetV2(TheseusLayer):
                  visualize=False,
                  #  fuse_map=False,
                  #  fuse_map_from=None,
-                 use_ibn=False,
+                 use_ibn_a=False,
+                 use_ibn_b=False,
+                 ibn_after_dw=False,
                  return_multi_res=False,
                  use_mhsa=False,
                  use_cross_mhsa=False,
@@ -517,7 +548,7 @@ class PPLCNetV2(TheseusLayer):
                 in_channels=3,
                 kernel_size=3,
                 out_channels=make_divisible(32 * scale),
-                stride=2), RepDepthwiseSeparable(
+                stride=2, ibn_b=use_ibn_b), RepDepthwiseSeparable(
                     in_channels=make_divisible(32 * scale),
                     out_channels=make_divisible(64 * scale),
                     stride=1,
@@ -541,11 +572,15 @@ class PPLCNetV2(TheseusLayer):
                         use_rep=use_rep,
                         use_se=use_se,
                         use_shortcut=use_shortcut,
-                        ibn=(use_ibn and (depth_idx < len(NET_CONFIG) - 1) and i == 0))
+                        ibn=(use_ibn_a and (depth_idx < len(NET_CONFIG) - 1)),
+                        ibn_b=(use_ibn_b and depth_idx < 2 and i == depths[depth_idx] - 1),
+                        after_dw=ibn_after_dw)
                     for i in range(depths[depth_idx])
                 ]))
-        if use_ibn:
-            logger.info(f"{'=' * 10} Using IBN in 前三个stage的第一个RepDepthwiseSeparable的dwconv")
+        if use_ibn_b:
+            logger.info(f"{'=' * 10} Using IBN-B in stem")
+        if use_ibn_a:
+            logger.info(f"{'=' * 10} Using IBN-A in 前三个stage的第一个RepDepthwiseSeparable的{'dwconv' if not ibn_after_dw else 'pwconv'}")
         # last stride
         if last_stride == 1:
             logger.info(f"{'=' * 10} Using last_stride=1(set pplcnet.laststride to 1)")
@@ -751,7 +786,10 @@ class PPLCNetV2(TheseusLayer):
         #     data = x.numpy()
         #     writer.add_histogram(tag=f"{'train' if self.training else 'eval'} fc_output", values=data, step=0, buckets=1000)
         if self.return_multi_res:
-            return f3, x
+            return {
+                "f3": f3,
+                "backbone": x
+            }
         else:
             return x
 
@@ -788,14 +826,9 @@ def PPLCNetV2_base(pretrained=False, use_ssld=False, **kwargs):
     model = PPLCNetV2(
         scale=1.0, depths=[2, 2, 6, 2], dropout_prob=dropout_prob, **kwargs)
     _load_pretrained(pretrained, model, MODEL_URLS["PPLCNetV2_base"], use_ssld)
-    if 'use_ibn' in kwargs and 'ibn_init' in kwargs:
-        for m in model.sublayers():
-            if hasattr(m, 'ibn'):
-                num_c = m.bn.weight.shape[0]
-                num_c = num_c // 2
-                m.ibn.IN.scale.set_value(m.bn.weight[:num_c])
-                m.ibn.BN.weight.set_value(m.bn.weight[num_c:])
-                m.ibn.BN.bias.set_value(m.bn.bias[num_c:])
-                logger.info(f"{'=' * 10} IBN_init")
-        logger.info(f"{'=' * 10} Using IBN and IBN_init")
+    # if 'use_ibn_a' in kwargs:
+    # if 'use_ibn_b' in kwargs:
+    #     for m in model.sublayers():
+    #         if hasattr(m, 'init_ibn_from_bn'):
+    #             m.init_ibn_from_bn()
     return model
