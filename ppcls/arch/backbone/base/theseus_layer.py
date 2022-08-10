@@ -530,7 +530,7 @@ class RGAModule(nn.Layer):
                 nn.Conv2D(in_channels=num_channel_s//down_ratio, out_channels=1, kernel_size=1, stride=1, padding=0, bias_attr=False),
                 nn.BatchNorm2D(1)
             )
-        if self.use_channel:    
+        if self.use_channel:
             num_channel_c = 1 + self.inter_channel
             self.W_channel = nn.Sequential(
                 nn.Conv2D(in_channels=num_channel_c, out_channels=num_channel_c//down_ratio, kernel_size=1, stride=1, padding=0, bias_attr=False),
@@ -610,3 +610,35 @@ class RGAModule(nn.Layer):
             out = nn.functional.sigmoid(W_yc) * x
 
             return out
+
+
+class SpatialGroupEnhance(nn.layer):
+    def __init__(self, groups: int = 64):
+        super(SpatialGroupEnhance, self).__init__()
+        self.groups = groups
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.weight = self.create_parameter(
+            shape=[1, groups, 1, 1],
+            default_initializer=nn.initilizer.Constant(0.0)
+        )
+        self.bias = self.create_parameter(
+            shape=[1, groups, 1, 1],
+            default_initializer=nn.initilizer.Constant(1.0)
+        )
+        self.sig = nn.Sigmoid()
+
+    def forward(self, x):  # (b, c, h, w)
+        b, c, h, w = x.shape
+        x = x.reshape([b * self.groups, -1, h, w])
+        xn = x * self.avg_pool(x)
+        xn = xn.sum(axis=1, keepdim=True)
+        t = xn.reshape([b * self.groups, -1])
+        t = t - t.mean(axis=1, keepdim=True)
+        std = t.std(axis=1, keepdim=True) + 1e-5
+        t = t / std
+        t = t.reshape([b, self.groups, h, w])
+        t = t * self.weight + self.bias
+        t = t.reshape([b * self.groups, 1, h, w])
+        x = x * self.sig(t)
+        x = x.reshape([b, c, h, w])
+        return x
