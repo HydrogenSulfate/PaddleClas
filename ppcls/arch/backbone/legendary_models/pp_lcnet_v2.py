@@ -25,6 +25,7 @@ from paddle.nn.initializer import KaimingNormal, Constant, Normal, Uniform, Kaim
 from ppcls.arch.backbone.base.theseus_layer import TheseusLayer
 from ppcls.arch.backbone.base.theseus_layer import SpatialAttention
 from ppcls.arch.backbone.base.theseus_layer import RCCAModule
+from ppcls.arch.backbone.base.theseus_layer import SpatialGroupEnhance
 from ppcls.utils.save_load import load_dygraph_pretrain, load_dygraph_pretrain_from_url
 from ppcls.utils import logger
 
@@ -534,6 +535,7 @@ class PPLCNetV2(TheseusLayer):
                  return_multi_res=False,
                  use_mhsa=False,
                  use_cross_mhsa=False,
+                 use_sge=False,
                  **kwargs):
         super().__init__()
         self.scale = scale
@@ -694,6 +696,11 @@ class PPLCNetV2(TheseusLayer):
             )
             logger.info(f"{'=' * 10} use CrossMHSA, 14x14, heads=4")
 
+        self.use_sge = use_sge
+        if use_sge:
+            self.sge = SpatialGroupEnhance(make_divisible(NET_CONFIG["stage4"][0] * 2 * scale))
+            logger.info(f"{'=' * 10} use SGE({make_divisible(NET_CONFIG["stage4"][0] * 2 * scale)})")
+
         self.return_multi_res = return_multi_res
         if return_multi_res:
             self.fc_s3 = Linear(in_features // 2, class_num)
@@ -771,6 +778,8 @@ class PPLCNetV2(TheseusLayer):
                 x = self.mhsa(x, x)
             elif self.use_cross_mhsa:
                 x = self.cross_mhsa(f4, f3)
+            elif self.use_sge:
+                x = self.sge(x)
             x = self.avg_pool(x)
         if self.use_last_conv:
             x = self.last_conv(x)  # 1024->in_fea
