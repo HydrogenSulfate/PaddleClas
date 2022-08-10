@@ -129,14 +129,14 @@ class Engine(object):
                     key = list(self.config["DataLoader"]["Eval"].keys())[0]
                     self.gallery_query_dataloader = build_dataloader(
                         self.config["DataLoader"]["Eval"], key, self.device,
-                        self.use_dali)
+                        self.use_dali_eval)
                 else:
                     self.gallery_dataloader = build_dataloader(
-                        self.device, self.use_dali_eval)
+                        self.config["DataLoader"]["Eval"], "Gallery",
                         self.device, self.use_dali_eval)
                     self.query_dataloader = build_dataloader(
                         self.config["DataLoader"]["Eval"], "Query",
-                        self.device, self.use_dali)
+                        self.device, self.use_dali_eval)
 
         # build loss
         if self.mode == "train":
