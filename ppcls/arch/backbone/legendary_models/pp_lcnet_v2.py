@@ -698,8 +698,8 @@ class PPLCNetV2(TheseusLayer):
 
         self.use_sge = use_sge
         if use_sge:
-            self.sge = SpatialGroupEnhance(make_divisible(NET_CONFIG["stage4"][0] * 2 * scale))
-            logger.info(f"{'=' * 10} use SGE({make_divisible(NET_CONFIG['stage4'][0] * 2 * scale)})")
+            self.sge = SpatialGroupEnhance(32)
+            logger.info(f"{'=' * 10} use SGE({self.sge.groups})")
 
         self.return_multi_res = return_multi_res
         if return_multi_res:
