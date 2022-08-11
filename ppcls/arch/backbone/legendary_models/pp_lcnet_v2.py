@@ -233,7 +233,8 @@ class RepDepthwiseSeparable(TheseusLayer):
                  use_shortcut=False,
                  ibn=False,
                  after_dw=False,
-                 ibn_b=False):
+                 ibn_b=False,
+                 use_sge=False):
         super().__init__()
         self.is_repped = False
         # print(f"stride={stride}")
@@ -241,6 +242,7 @@ class RepDepthwiseSeparable(TheseusLayer):
         self.split_pw = split_pw
         self.use_rep = use_rep
         self.use_se = use_se
+        self.use_sge = use_sge
         self.use_shortcut = True if use_shortcut and stride == 1 and in_channels == out_channels else False
 
         if self.use_rep:
@@ -304,6 +306,9 @@ class RepDepthwiseSeparable(TheseusLayer):
             logger.info("Insert IBN-B Module")
         else:
             self.IN = None
+        if use_sge:
+            logger.info("Insert SpatialGroupEnhance Module before `x = x + input_x`")
+            self.sge = SpatialGroupEnhance(32)
 
     def forward(self, x):
         if self.use_rep:
@@ -325,6 +330,8 @@ class RepDepthwiseSeparable(TheseusLayer):
             x = self.pw_conv_2(x)
         else:
             x = self.pw_conv(x)
+        if self.use_sge:
+            x = self.sge(x)
         if self.use_shortcut:
             x = x + input_x
         if self.IN is not None:
@@ -536,6 +543,7 @@ class PPLCNetV2(TheseusLayer):
                  use_mhsa=False,
                  use_cross_mhsa=False,
                  use_sge=False,
+                 use_sge_backbone_index=[[0,0],[0,0],[0,0,0,0,0,0],[0,0]],
                  **kwargs):
         super().__init__()
         self.scale = scale
@@ -576,7 +584,8 @@ class PPLCNetV2(TheseusLayer):
                         use_shortcut=use_shortcut,
                         ibn=(use_ibn_a and (depth_idx < len(NET_CONFIG) - 1)),
                         ibn_b=(use_ibn_b and depth_idx < 2 and i == depths[depth_idx] - 1),
-                        after_dw=ibn_after_dw)
+                        after_dw=ibn_after_dw,
+                        use_sge=use_sge_backbone_index[depth_idx][i])
                     for i in range(depths[depth_idx])
                 ]))
         if use_ibn_b:
