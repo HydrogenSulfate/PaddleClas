@@ -2,20 +2,26 @@
 Global:
   checkpoints: null
   pretrained_model: null
-  output_dir: ./output/
+  output_dir: ./outputs/baseline_triplet_emb512_PPLCNet_x1_0
   device: gpu
-  save_interval: 1
-  eval_during_train: True
+  save_interval: 120
+  eval_during_train: False
   eval_interval: 1
   epochs: 100
-  print_batch_step: 10
+  print_batch_step: 20
   use_visualdl: False
   # used for static mode and model export
   image_shape: [3, 224, 224]
-  save_inference_dir: ./inference
+  save_inference_dir: ./inference_baseline_triplet_emb512_PPLCNet_x1_0
   eval_mode: retrieval
   use_dali: False
   to_static: False
+
+# AMP:
+#   scale_loss: 65536
+#   use_dynamic_loss_scaling: True
+#   # O1: mixed fp16
+#   level: O1
 
 # model architecture
 Arch:
@@ -24,7 +30,7 @@ Arch:
   infer_add_softmax: False
 
   Backbone:
-    name: PPLCNet_x2_5
+    name: PPLCNet_x1_0
     pretrained: True
     use_ssld: True
   BackboneStopLayer:
@@ -94,13 +100,15 @@ DataLoader:
     Query:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/query_clean.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
               channel_first: False
           - ResizeImage:
+              size: 224
+          - CropImage:
               size: 224
           - NormalizeImage:
               scale: 0.00392157
@@ -109,7 +117,7 @@ DataLoader:
               order: ""
       sampler:
         name: DistributedBatchSampler
-        batch_size: 64
+        batch_size: 8
         drop_last: False
         shuffle: False
       loader:
@@ -119,13 +127,15 @@ DataLoader:
     Gallery:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/gallery_clean.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
               channel_first: False
           - ResizeImage:
+              size: 224
+          - CropImage:
               size: 224
           - NormalizeImage:
               scale: 0.00392157
@@ -134,7 +144,7 @@ DataLoader:
               order: ""
       sampler:
         name: DistributedBatchSampler
-        batch_size: 64
+        batch_size: 8
         drop_last: False
         shuffle: False
       loader:

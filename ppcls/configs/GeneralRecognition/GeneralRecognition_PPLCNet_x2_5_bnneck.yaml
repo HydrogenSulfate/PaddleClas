@@ -2,19 +2,20 @@
 Global:
   checkpoints: null
   pretrained_model: null
-  output_dir: ./output/
+  output_dir: ./output_ShiTuV1_bnneck/
   device: gpu
-  save_interval: 1
+  save_interval: 120
   eval_during_train: True
   eval_interval: 1
   epochs: 100
-  print_batch_step: 10
+  print_batch_step: 20
   use_visualdl: False
-  # used for static mode and model export
   image_shape: [3, 224, 224]
-  save_inference_dir: ./inference
+  save_inference_dir: ./inference_ShiTuV1_bnneck
   eval_mode: retrieval
-  use_dali: False
+  use_dali: True
+  use_dali_eval: False
+  # used for static mode and model export
   to_static: False
 
 # model architecture
@@ -27,12 +28,19 @@ Arch:
     name: PPLCNet_x2_5
     pretrained: True
     use_ssld: True
-  BackboneStopLayer:
-    name: "flatten"
+    class_num: &feat_dim 512
   Neck:
-    name: FC
-    embedding_size: 1280
-    class_num: 512
+    name: BNNeck
+    num_features: *feat_dim
+    weight_attr:
+      initializer:
+        name: Constant
+        value: 1.0
+    bias_attr:
+      initializer:
+        name: Constant
+        value: 0.0
+      learning_rate: 1.0e-20 # NOTE: Temporarily set lr small enough to freeze the bias to zero
   Head:
     name: ArcMargin
     embedding_size: 512
@@ -87,15 +95,15 @@ DataLoader:
       drop_last: False
       shuffle: True
     loader:
-      num_workers: 4
+      num_workers: 16
       use_shared_memory: True
 
   Eval:
     Query:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_traindata/Aliproduct/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_traindata/Aliproduct/val_list.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
@@ -113,14 +121,14 @@ DataLoader:
         drop_last: False
         shuffle: False
       loader:
-        num_workers: 4
+        num_workers: 8
         use_shared_memory: True
 
     Gallery:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_traindata/Aliproduct/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_traindata/Aliproduct/val_list.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
@@ -138,7 +146,7 @@ DataLoader:
         drop_last: False
         shuffle: False
       loader:
-        num_workers: 4
+        num_workers: 8
         use_shared_memory: True
 
 Metric:

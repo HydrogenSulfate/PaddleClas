@@ -2,9 +2,9 @@
 Global:
   checkpoints: null
   pretrained_model: null
-  output_dir: ./output/
+  output_dir: ./output_V1_baseline_small_LCNetV2_base_tweaks_bnneck_tripletanglemargin_samplesampler_20w/
   device: gpu
-  save_interval: 1
+  save_interval: 110
   eval_during_train: True
   eval_interval: 1
   epochs: 100
@@ -12,7 +12,7 @@ Global:
   use_visualdl: False
   # used for static mode and model export
   image_shape: [3, 224, 224]
-  save_inference_dir: ./inference
+  save_inference_dir: ./inference_V1_baseline_small_LCNetV2_base_tweaks_bnneck_tripletanglemargin_samplesampler_20w
   eval_mode: retrieval
   use_dali: False
   to_static: False
@@ -24,19 +24,29 @@ Arch:
   infer_add_softmax: False
 
   Backbone:
-    name: PPLCNet_x2_5
+    name: PPLCNetV2_base
     pretrained: True
     use_ssld: True
-  BackboneStopLayer:
-    name: "flatten"
+    use_last_conv: False
+    fc_dropout: True
+    dropout_prob: 0.2
+    class_num: &feat_dim 512
   Neck:
-    name: FC
-    embedding_size: 1280
-    class_num: 512
+    name: BNNeck
+    num_features: *feat_dim
+    weight_attr:
+      initializer:
+        name: Constant
+        value: 1.0
+    bias_attr:
+      initializer:
+        name: Constant
+        value: 0.0
+      learning_rate: 1.0e-20 # NOTE: Temporarily set lr small enough to freeze the bias to zero
   Head:
     name: ArcMargin
     embedding_size: 512
-    class_num: 185341
+    class_num: 5525
     margin: 0.2
     scale: 30
 
@@ -45,6 +55,16 @@ Loss:
   Train:
     - CELoss:
         weight: 1.0
+    - TripletAngleMarinLoss:
+        weight: 1.0
+        margin: 0.5
+        reduction: mean
+        add_absolute: True
+        absolute_loss_weight: 0.2
+        normalize_feature: True
+        feature_from: "features"
+        ap_value: 0.9
+        an_value: 0.4
   Eval:
     - CELoss:
         weight: 1.0
@@ -54,7 +74,7 @@ Optimizer:
   momentum: 0.9
   lr:
     name: Cosine
-    learning_rate: 0.04
+    learning_rate: 0.08
     warmup_epoch: 5
   regularizer:
     name: "L2"
@@ -66,7 +86,8 @@ DataLoader:
     dataset:
       name: ImageNetDataset
       image_root: /workspace/dongshuilong/dataset/ppshitu_traindata/
-      cls_label_path: /workspace/dongshuilong/dataset/ppshitu_traindata/train_reg_all_data.txt
+      cls_label_path: /workspace/dongshuilong/dataset/ppshitu_traindata/train_v1_small_data.txt
+      relabel: True
       transform_ops:
         - DecodeImage:
             to_rgb: True
@@ -82,20 +103,22 @@ DataLoader:
             order: ""
 
     sampler:
-      name: DistributedBatchSampler
+      name: PKSampler
       batch_size: 256
+      sample_per_id: 4
       drop_last: False
       shuffle: True
+      sample_method: "sample_avg_prob"
     loader:
-      num_workers: 4
+      num_workers: 10
       use_shared_memory: True
 
   Eval:
     Query:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_traindata/Inshop/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_traindata/Inshop/query_list.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
@@ -113,14 +136,14 @@ DataLoader:
         drop_last: False
         shuffle: False
       loader:
-        num_workers: 4
+        num_workers: 10
         use_shared_memory: True
 
     Gallery:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_traindata/Inshop/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_traindata/Inshop/gallery_list.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
@@ -138,7 +161,7 @@ DataLoader:
         drop_last: False
         shuffle: False
       loader:
-        num_workers: 4
+        num_workers: 10
         use_shared_memory: True
 
 Metric:

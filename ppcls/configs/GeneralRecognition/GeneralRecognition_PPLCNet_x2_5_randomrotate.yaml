@@ -94,14 +94,18 @@ DataLoader:
     Query:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/Aliproduct/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/Aliproduct/val_list.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
               channel_first: False
           - ResizeImage:
               size: 224
+          - RandomRotation:
+              prob: 0.5
+              degrees: 90
+              interpolation: "bilinear"
           - NormalizeImage:
               scale: 0.00392157
               mean: [0.485, 0.456, 0.406]
@@ -109,18 +113,18 @@ DataLoader:
               order: ""
       sampler:
         name: DistributedBatchSampler
-        batch_size: 64
+        batch_size: 128
         drop_last: False
         shuffle: False
       loader:
-        num_workers: 4
+        num_workers: 8
         use_shared_memory: True
 
     Gallery:
       dataset:
         name: VeriWild
-        image_root: ./dataset/Aliproduct/
-        cls_label_path: ./dataset/Aliproduct/val_list.txt
+        image_root: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/Aliproduct/
+        cls_label_path: /workspace/dongshuilong/dataset/ppshitu_rec_test_white_data/Aliproduct/val_list.txt
         transform_ops:
           - DecodeImage:
               to_rgb: True
@@ -134,11 +138,11 @@ DataLoader:
               order: ""
       sampler:
         name: DistributedBatchSampler
-        batch_size: 64
+        batch_size: 128
         drop_last: False
         shuffle: False
       loader:
-        num_workers: 4
+        num_workers: 8
         use_shared_memory: True
 
 Metric:
