@@ -612,18 +612,18 @@ class RGAModule(nn.Layer):
             return out
 
 
-class SpatialGroupEnhance(nn.layer):
+class SpatialGroupEnhance(nn.Layer):
     def __init__(self, groups: int = 64):
         super(SpatialGroupEnhance, self).__init__()
         self.groups = groups
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.avg_pool = nn.AdaptiveAvgPool2D(1)
         self.weight = self.create_parameter(
             shape=[1, groups, 1, 1],
-            default_initializer=nn.initilizer.Constant(0.0)
+            default_initializer=nn.initializer.Constant(0.0)
         )
         self.bias = self.create_parameter(
             shape=[1, groups, 1, 1],
-            default_initializer=nn.initilizer.Constant(1.0)
+            default_initializer=nn.initializer.Constant(1.0)
         )
         self.sig = nn.Sigmoid()
 
