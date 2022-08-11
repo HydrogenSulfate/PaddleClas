@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from paddle import nn, Tensor
-from typing import List
+from typing import List, Dict
 from .arcmargin import ArcMargin
 from .cosmargin import CosMargin
 from .circlemargin import CircleMargin
