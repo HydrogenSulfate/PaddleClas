@@ -106,7 +106,10 @@ class RecModel(TheseusLayer):
 
         if self.head is not None:
             y = self.head(x, label)
-            out["logits"] = y
+            if isinstance(y, dict):
+                out.update(y)
+            else:
+                out["logits"] = y
         return out
 
 

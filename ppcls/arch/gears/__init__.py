@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from paddle import nn, Tensor
-from typing import List, Dict
+from typing import List, Dict, Optional, Union
 from .arcmargin import ArcMargin
 from .cosmargin import CosMargin
 from .circlemargin import CircleMargin
@@ -27,7 +27,7 @@ __all__ = ['build_gear']
 
 
 class MultiLayer(nn.Layer):
-    def __init__(self, layer_list: List[nn.Layer], output_name_list: List[str]):
+    def __init__(self, layer_list: List[nn.Layer], output_name_list: List[str], input_name_list: List[Union[str, None]] = []):
         """MultiLayer
 
         Args:
@@ -35,12 +35,17 @@ class MultiLayer(nn.Layer):
         """
         super(MultiLayer, self).__init__()
         self.layer_list = nn.LayerList(layer_list)
+        self.input_name_list = input_name_list
         self.output_name_list = output_name_list
 
     def forward(self, input, label=None) -> Dict[str, Tensor]:
         output_dict = {}
         for i in range(len(self.layer_list)):
-            output = self.layer_list[i](input) if label is None else self.layer_list[i](input, label)
+            if self.input_name_list[i] is not None:
+                output = self.layer_list[i](input) if label is None else self.layer_list[i](input, label)
+            else:
+                input_name = self.input_name_list[i]
+                output = self.layer_list[i](input[input_name]) if label is None else self.layer_list[i](input[input_name], label)
             output_dict[self.output_name_list[i]] = output
         return output_dict
 
@@ -58,18 +63,21 @@ def build_gear(config):
         return module_class
     elif isinstance(config, list):
         module_class_list = []
+        input_name_list = []
         output_name_list = []
+
         for sub_config in config:
             module_name: str = list(sub_config.keys())[0]
-            assert module_name in support_dict, Exception(
-                'head only support {}'.format(support_dict))
+            assert module_name in support_dict, Exception('head only support {}'.format(support_dict))
             module_config: dict = sub_config[module_name]
+            input_name = module_config.pop("input_name") if "input_name" in module_config else None
             output_name = module_config.pop("output_name")
 
+            input_name_list.append(input_name)
             output_name_list.append(output_name)
             module_class_list.append(eval(module_name)(**module_config))
 
-        module_class_list = MultiLayer(module_class_list, output_name_list)
+        module_class_list = MultiLayer(module_class_list, output_name_list, input_name_list)
         return module_class_list
     else:
         raise TypeError(

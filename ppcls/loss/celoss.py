@@ -41,9 +41,29 @@ class CELoss(nn.Layer):
         soft_target = paddle.reshape(soft_target, shape=[-1, class_num])
         return soft_target
 
+    def multiforward(self, x: dict, label: paddle.Tensor):
+        if isinstance(x, dict):
+            loss = None
+            for name, logits in x:
+                loss_i = self.pure_forward(logits, label)
+                if loss is None:
+                    loss = loss_i
+                else:
+                    loss = loss + loss_i
+            loss = loss / len(x)
+            return loss
+        else:
+            raise ValueError(
+                f"x must be dict, but got {type(x)}"
+            )
+
     def forward(self, x, label):
         if isinstance(x, dict):
-            x = x["logits"]
+            if len(x) >= 2:
+                loss = self.multiforward(x, label)
+                return {"CELoss": loss}
+            else:
+                x = x["logits"]
         if self.epsilon is not None:
             class_num = x.shape[-1]
             label = self._labelsmoothing(label, class_num)
@@ -58,6 +78,22 @@ class CELoss(nn.Layer):
             loss = F.cross_entropy(x, label=label, soft_label=soft_label)
         loss = loss.mean()
         return {"CELoss": loss}
+
+    def pure_forward(self, x, label):
+        if self.epsilon is not None:
+            class_num = x.shape[-1]
+            label = self._labelsmoothing(label, class_num)
+            x = -F.log_softmax(x, axis=-1)
+            loss = paddle.sum(x * label, axis=-1)
+        else:
+            if label.shape[-1] == x.shape[-1]:
+                label = F.softmax(label, axis=-1)
+                soft_label = True
+            else:
+                soft_label = False
+            loss = F.cross_entropy(x, label=label, soft_label=soft_label)
+        loss = loss.mean()
+        return loss
 
 
 class MixCELoss(object):

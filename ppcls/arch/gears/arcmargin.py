@@ -17,7 +17,7 @@
 import paddle
 import paddle.nn as nn
 import math
-
+from ppcls.arch.utils import get_param_attr_dict
 
 class ArcMargin(nn.Layer):
     def __init__(self,
@@ -25,17 +25,20 @@ class ArcMargin(nn.Layer):
                  class_num,
                  margin=0.5,
                  scale=80.0,
-                 easy_margin=False):
+                 easy_margin=False,
+                 attr=None):
         super().__init__()
         self.embedding_size = embedding_size
         self.class_num = class_num
         self.margin = margin
         self.scale = scale
         self.easy_margin = easy_margin
+        attr = get_param_attr_dict(attr)
         self.weight = self.create_parameter(
             shape=[self.embedding_size, self.class_num],
             is_bias=False,
-            default_initializer=paddle.nn.initializer.XavierNormal())
+            default_initializer=paddle.nn.initializer.XavierNormal(),
+            attr=attr)
 
     def forward(self, input, label=None):
         input_norm = paddle.sqrt(

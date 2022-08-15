@@ -544,6 +544,7 @@ class PPLCNetV2(TheseusLayer):
                  use_cross_mhsa=False,
                  use_sge=False,
                  use_sge_backbone_index=[[0,0],[0,0],[0,0,0,0,0,0],[0,0]],
+                 double_last_conv: bool = False,
                  **kwargs):
         super().__init__()
         self.scale = scale
@@ -715,6 +716,18 @@ class PPLCNetV2(TheseusLayer):
             self.fc_s3 = Linear(in_features // 2, class_num)
             logger.info(f"{'=' * 10} use return_multi_res")
 
+        self.double_last_conv = double_last_conv
+        if double_last_conv:
+            logger.info(f"{'=' * 10} use double_last_conv")
+            self.lastconv_1 = nn.Linear(
+                make_divisible(NET_CONFIG["stage4"][0] * 2 * scale),
+                512
+            )
+            self.lastconv_2 = nn.Linear(
+                make_divisible(NET_CONFIG["stage4"][0] * 2 * scale),
+                512
+            )
+
     def _globalmodel_forward(self, x, fuse_from="f3"):
         """
         [B, 64, 112, 112] <- stem
@@ -795,6 +808,11 @@ class PPLCNetV2(TheseusLayer):
             x = self.act(x)
             x = self.dropout(x)
         x = self.flatten(x)
+        if self.double_last_conv:
+            return {
+                "backbone1": self.lastconv_1(x),
+                "backbone2": self.lastconv_2(x)
+            }
         x = self.fc(x)  # in_fea->out_fea
         if self.fc_relu:
             x = self.act(x)
