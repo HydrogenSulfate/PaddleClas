@@ -166,3 +166,99 @@ class TripletLoss(nn.Layer):
         y = paddle.ones_like(dist_an)
         loss = self.ranking_loss(dist_an, dist_ap, y)
         return {"TripletLoss": loss}
+
+
+class TripletAngleMarinLoss(nn.Layer):
+    """Triplet loss with hard positive/negative mining.
+    paper : [Facenet: A unified embedding for face recognition and clustering](https://arxiv.org/pdf/1503.03832.pdf)
+    code reference: https://github.com/okzhili/Cartoon-face-recognition/blob/master/loss/triplet_loss.py
+    Args:
+        margin (float): margin for triplet.
+    """
+    def __init__(self,
+                 margin=0.5,
+                 normalize_feature=True,
+                 reduction='mean',
+                 add_absolute=False,
+                 absolute_loss_weight=1.0,
+                 ap_value=0.9,
+                 an_value=0.5,
+                 feature_from="features"):
+        super(TripletAngleMarinLoss, self).__init__()
+        self.margin = margin
+        self.feature_from = feature_from
+        self.ranking_loss = paddle.nn.loss.MarginRankingLoss(
+            margin=margin, reduction=reduction)
+        self.normalize_feature = normalize_feature
+        self.add_absolute = add_absolute
+        self.ap_value = ap_value
+        self.an_value = an_value
+        # if add_absolute:
+        #     assert reduction == 'none', "Please set 'reduction=none' when set add_absolute=True"
+        self.absolute_loss_weight = absolute_loss_weight
+
+    def forward(self, input, target):
+        """
+        Args:
+            inputs: feature matrix with shape (batch_size, feat_dim)
+            target: ground truth labels with shape (num_classes)
+        """
+        inputs = input[self.feature_from]
+
+        if self.normalize_feature:
+            inputs = paddle.divide(
+                inputs, paddle.norm(inputs, p=2, axis=-1, keepdim=True))
+
+        bs = inputs.shape[0]
+
+        # compute distance
+        #  dist = paddle.pow(inputs, 2).sum(axis=1, keepdim=True).expand([bs, bs])
+        #  dist = dist + dist.t()
+        #  dist = paddle.addmm(
+        #  input=dist, x=inputs, y=inputs.t(), alpha=-2.0, beta=1.0)
+        #  dist = paddle.clip(dist, min=1e-12).sqrt()
+        dist = paddle.matmul(inputs, inputs.t())
+
+        # hard negative mining
+        is_pos = paddle.expand(target, (bs, bs)).equal(
+            paddle.expand(target, (bs, bs)).t())
+        is_neg = paddle.expand(target, (bs, bs)).not_equal(
+            paddle.expand(target, (bs, bs)).t())
+
+        # `dist_ap` means distance(anchor, positive)
+        ## both `dist_ap` and `relative_p_inds` with shape [N, 1]
+        '''
+        dist_ap, relative_p_inds = paddle.max(
+            paddle.reshape(dist[is_pos], (bs, -1)), axis=1, keepdim=True)
+        # `dist_an` means distance(anchor, negative)
+        # both `dist_an` and `relative_n_inds` with shape [N, 1]
+        dist_an, relative_n_inds = paddle.min(
+            paddle.reshape(dist[is_neg], (bs, -1)), axis=1, keepdim=True)
+        '''
+        dist_ap = paddle.min(paddle.reshape(paddle.masked_select(dist, is_pos),
+                                            (bs, -1)),
+                             axis=1,
+                             keepdim=True)
+        # `dist_an` means distance(anchor, negative)
+        # both `dist_an` and `relative_n_inds` with shape [N, 1]
+        dist_an = paddle.max(paddle.reshape(paddle.masked_select(dist, is_neg),
+                                            (bs, -1)),
+                             axis=1,
+                             keepdim=True)
+        # shape [N]
+        dist_ap = paddle.squeeze(dist_ap, axis=1)
+        dist_an = paddle.squeeze(dist_an, axis=1)
+
+        # Compute ranking hinge loss
+        y = paddle.ones_like(dist_an)
+        loss = self.ranking_loss(dist_ap, dist_an, y)
+        if self.add_absolute:
+            absolut_loss_ap = self.ap_value - dist_ap
+            absolut_loss_ap = paddle.where(absolut_loss_ap > 0, absolut_loss_ap,
+                                        paddle.zeros_like(absolut_loss_ap))
+            absolut_loss_an = dist_an - self.an_value
+            absolut_loss_an = paddle.where(absolut_loss_an > 0, absolut_loss_an,
+                                        paddle.ones_like(absolut_loss_an))
+            loss = (absolut_loss_an.mean() + absolut_loss_ap.mean()) * self.absolute_loss_weight + loss.mean()
+
+        return {"TripletAngleMarinLoss": loss}
