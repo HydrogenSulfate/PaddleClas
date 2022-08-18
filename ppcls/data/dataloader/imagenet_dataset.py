@@ -17,7 +17,7 @@ from __future__ import print_function
 import os
 
 import cv2
-import jpeg4py as jpeg
+# import jpeg4py as jpeg
 import numpy as np
 from PIL import Image
 from ppcls.data.preprocess import transform
@@ -35,7 +35,8 @@ class ImageNetDataset(CommonDataset):
             delimiter=None,
             relabel=False,
             backend="cv2",
-            use_jpeg4py=False):
+            # use_jpeg4py=False
+            ):
         self.delimiter = delimiter if delimiter is not None else " "
         self.relabel = relabel
         self.backend = backend
@@ -44,11 +45,11 @@ class ImageNetDataset(CommonDataset):
 
     def __getitem__(self, idx):
         try:
-            if self.use_jpeg4py:
-                image = jpeg.JPEG(self.images[idx]).decode()
-                image = Image.fromarray(image).convert('RGB')
-            else:
-                img = Image.open(self.images[idx]).convert('RGB')
+            # if self.use_jpeg4py:
+            #     image = jpeg.JPEG(self.images[idx]).decode()
+            #     image = Image.fromarray(image).convert('RGB')
+            # else:
+            img = Image.open(self.images[idx]).convert('RGB')
             if self.backend == "cv2":
                 img = np.array(img, dtype="float32").astype(np.uint8)
             if self._transform_ops:
@@ -82,14 +83,14 @@ class ImageNetDataset(CommonDataset):
                 label_set.add(int(line[1]))
             oldlabel_2_newlabel = {oldlabel: newlabel for newlabel, oldlabel in enumerate(label_set)}
 
-            for l in lines:
-                l = l.strip().split(self.delimiter)
-                self.images.append(os.path.join(self._img_root, l[0]))
+            for line in lines:
+                line = line.strip().split(self.delimiter)
+                self.images.append(os.path.join(self._img_root, line[0]))
                 if self.relabel:
-                    self.labels.append(oldlabel_2_newlabel[np.int64(l[1])])
+                    self.labels.append(oldlabel_2_newlabel[np.int64(line[1])])
                 else:
-                    self.labels.append(np.int64(l[1]))
-                # self.labels.append(np.int64(l[1]))
+                    self.labels.append(np.int64(line[1]))
+                # self.labels.append(np.int64(line[1]))
                 assert os.path.exists(self.images[-1])
         logger.info(f"images: {len(self.images)}, labels: {len(label_set)}({min(self.labels)}~{max(self.labels)})")
 
@@ -116,6 +117,7 @@ class ImageNetDataset_cv2(CommonDataset):
                 #  二进制读取，速度快
                 with open(self.images[idx], "rb") as f:
                     img = f.read()
+
                 #  直接读取，速度慢
                 # img = cv2.imread(self.images[idx])  # BGR, uint8
                 # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # RGB, uint8
@@ -148,13 +150,13 @@ class ImageNetDataset_cv2(CommonDataset):
                 label_set.add(int(line[1]))
             oldlabel_2_newlabel = {oldlabel: newlabel for newlabel, oldlabel in enumerate(label_set)}
 
-            for l in lines:
-                l = l.strip().split(self.delimiter)
-                self.images.append(os.path.join(self._img_root, l[0]))
+            for line in lines:
+                line = line.strip().split(self.delimiter)
+                self.images.append(os.path.join(self._img_root, line[0]))
                 if self.relabel:
-                    self.labels.append(oldlabel_2_newlabel[np.int64(l[1])])
+                    self.labels.append(oldlabel_2_newlabel[np.int64(line[1])])
                 else:
-                    self.labels.append(np.int64(l[1]))
-                # self.labels.append(np.int64(l[1]))
-                assert os.path.exists(self.images[-1])
+                    self.labels.append(np.int64(line[1]))
+                # self.labels.append(np.int64(line[1]))
+                assert os.path.exists(self.images[-1]), f"{self.images[-1]} do not exist."
         logger.info(f"images: {len(self.images)}, labels: {len(label_set)}({min(self.labels)}~{max(self.labels)})")

@@ -33,6 +33,13 @@ class PKSampler(DistributedBatchSampler):
         batch_size (int): number of examples in a batch.
         shuffle(bool): whether to shuffle indices order before generating
             batch indices. Default False.
+        drop_last(bool): whether to drop last iter batch if data numbers is smaller
+            than batch_size.
+        id_list(list): list of (start_id, end_id, start_id, end_id) for set of ids to
+            duplicated.
+        ratio(list): list of (ratio1, ratio2..) the duplication number for ids in id_list.
+        sample_method: sample method when generating batchs. Two method are supported: sample_avg_prob,
+            sample_avg_id.
     """
 
     def __init__(self,
@@ -41,6 +48,8 @@ class PKSampler(DistributedBatchSampler):
                  sample_per_id,
                  shuffle=True,
                  drop_last=True,
+                 id_list=None,
+                 ratio=None,
                  sample_method="sample_avg_prob"):
         super().__init__(
             dataset, batch_size, shuffle=shuffle, drop_last=drop_last)
@@ -68,6 +77,15 @@ class PKSampler(DistributedBatchSampler):
             logger.error(
                 "PKSampler only support id_avg_prob and sample_avg_prob sample method, "
                 "but receive {}.".format(self.sample_method))
+        if id_list and ratio:
+            assert len(id_list) % 2 == 0 and len(id_list) == len(ratio) * 2
+            for i in range(len(self.prob_list)):
+                for j in range(len(ratio)):
+                    if i >= id_list[j * 2] and i <= id_list[j * 2 + 1]:
+                        self.prob_list[i] = self.prob_list[i] * ratio[j]
+                        break
+            self.prob_list = self.prob_list / sum(self.prob_list)
+
         diff = np.abs(sum(self.prob_list) - 1)
         if diff > 0.00000001:
             self.prob_list[-1] = 1 - sum(self.prob_list[:-1])
