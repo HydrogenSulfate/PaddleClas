@@ -28,7 +28,7 @@ from paddle.vision.transforms import ColorJitter as RawColorJitter
 from paddle.vision.transforms import RandomRotation as RawRandomRotation
 from paddle.vision.transforms import ToTensor, Normalize, RandomHorizontalFlip, RandomResizedCrop
 from paddle.vision.transforms import functional as F
-import albumentations as A
+# import albumentations as A
 from .autoaugment import ImageNetPolicy
 from .functional import augmentations
 from ppcls.utils import logger
@@ -762,18 +762,18 @@ class Pad_cv2(object):
         return img
 
 
-class Perspective(object):
-    """
-    Perspective
-    """
+# class Perspective(object):
+#     """
+#     Perspective
+#     """
 
-    def __init__(self,
-                 prob: float,
-                 scale: (float, float)):
-        self.prob = prob
-        self.aug = A.Perspective(scale=scale, p=1.0)
+#     def __init__(self,
+#                  prob: float,
+#                  scale: (float, float)):
+#         self.prob = prob
+#         self.aug = A.Perspective(scale=scale, p=1.0)
 
-    def __call__(self, img):
-        if np.random.random() < self.prob:
-            img = self.aug(image=img)['image']
-        return img
+#     def __call__(self, img):
+#         if np.random.random() < self.prob:
+#             img = self.aug(image=img)['image']
+#         return img
