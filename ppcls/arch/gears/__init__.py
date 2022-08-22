@@ -41,7 +41,7 @@ class MultiLayer(nn.Layer):
     def forward(self, input, label=None) -> Dict[str, Tensor]:
         output_dict = {}
         for i in range(len(self.layer_list)):
-            if self.input_name_list[i] is not None:
+            if self.input_name_list[i] is None:
                 output = self.layer_list[i](input) if label is None else self.layer_list[i](input, label)
             else:
                 input_name = self.input_name_list[i]

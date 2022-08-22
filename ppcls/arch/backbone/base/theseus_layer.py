@@ -613,7 +613,7 @@ class RGAModule(nn.Layer):
 
 
 class SpatialGroupEnhance(nn.Layer):
-    def __init__(self, groups: int = 64):
+    def __init__(self, groups: int = 32):
         super(SpatialGroupEnhance, self).__init__()
         self.groups = groups
         self.avg_pool = nn.AdaptiveAvgPool2D(1)

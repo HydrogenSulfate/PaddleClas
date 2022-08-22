@@ -16,7 +16,7 @@ Global:
   use_dali: False
   # used for static mode and model export
   image_shape: [3, 224, 224]
-  save_inference_dir: "./inference_baseline_shitu_triplet_emb512_no_RE_rotate90_lr0.06_lcnetv2_cv2_nolastconv_dropout_bigv2__idsampler_ratio_taml"
+  save_inference_dir: "./inference_taml"
 
 AMP:
   scale_loss: 65536
@@ -138,7 +138,7 @@ DataLoader:
       drop_last: False
       shuffle: True
       sample_method: "id_avg_prob"
-      id_list: [50030, 80700, 92019, 96015] 
+      id_list: [50030, 80700, 92019, 96015]
       ratio: [4, 4]
     loader:
       num_workers: 16
