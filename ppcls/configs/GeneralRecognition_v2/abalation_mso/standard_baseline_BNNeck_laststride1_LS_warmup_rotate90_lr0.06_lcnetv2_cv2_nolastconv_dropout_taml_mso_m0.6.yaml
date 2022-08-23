@@ -81,7 +81,7 @@ Loss:
     - TripletLossV2:
         weight: 0.2
         feature_from: "f3" # 修改点1：对'stage3-GAP-FC'的结果做tripletloss
-        margin: 0.3
+        margin: 0.6
         normalize_feature: False
   Eval:
     - CELoss:
