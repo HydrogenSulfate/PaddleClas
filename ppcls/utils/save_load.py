@@ -55,12 +55,25 @@ def load_dygraph_pretrain(model, path=None):
         raise ValueError("Model pretrain path {}.pdparams does not "
                          "exists.".format(path))
     param_state_dict = paddle.load(path + ".pdparams")
+    # if isinstance(model, (tuple, list)):
+    #     model_keys = []
+    #     for m in model:
+    #         if m:
+    #             model_keys.extend(list(m.state_dict().keys()))
+    # else:
+    #     model_keys = list(model.state_dict().keys())
+    # unused_keys = [x for x in param_state_dict if x not in model_keys]
+    # missing_keys = [x for x in model_keys if (x not in param_state_dict or list(model[0].state_dict()[x].shape) != list(param_state_dict[x].shape))]
     if isinstance(model, list):
         for m in model:
             if hasattr(m, 'set_dict'):
                 m.set_dict(param_state_dict)
     else:
         model.set_dict(param_state_dict)
+    # if len(unused_keys) > 0:
+    #     logger.warning(f"Detect unused_keys: {unused_keys}")
+    # if len(missing_keys) > 0:
+    #     logger.warning(f"Detect missing_keys: {missing_keys}")
     return
 
 

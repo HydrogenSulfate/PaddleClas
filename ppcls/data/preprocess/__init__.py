@@ -24,6 +24,7 @@ from ppcls.data.preprocess.ops.grid import GridMask
 from ppcls.data.preprocess.ops.operators import DecodeImage
 from ppcls.data.preprocess.ops.operators import ResizeImage
 from ppcls.data.preprocess.ops.operators import CropImage
+from ppcls.data.preprocess.ops.operators import CropImageAtRatio
 from ppcls.data.preprocess.ops.operators import CenterCrop, Resize
 from ppcls.data.preprocess.ops.operators import RandCropImage
 from ppcls.data.preprocess.ops.operators import RandCropImageV2

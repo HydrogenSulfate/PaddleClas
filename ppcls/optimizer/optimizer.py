@@ -211,7 +211,8 @@ class RMSProp(object):
                  epsilon=1e-6,
                  weight_decay=None,
                  grad_clip=None,
-                 multi_precision=False):
+                 multi_precision=False,
+                 no_weight_decay_name=None):
         super().__init__()
         self.learning_rate = learning_rate
         self.momentum = momentum
@@ -219,9 +220,41 @@ class RMSProp(object):
         self.epsilon = epsilon
         self.weight_decay = weight_decay
         self.grad_clip = grad_clip
+        self.no_weight_decay_name_list = no_weight_decay_name.split(
+        ) if no_weight_decay_name else []
 
     def __call__(self, model_list):
         # model_list is None in static graph
+        parameters = None
+        if len(self.no_weight_decay_name_list) > 0:
+            params_with_decay = []
+            params_without_decay = []
+            for m in model_list:
+                params_with_decay.extend([
+                    p for (n, p) in m.named_parameters()
+                    if not any(pattern in n
+                               for pattern in self.no_weight_decay_name_list)
+                ])
+                params_without_decay.extend([
+                    p for (n, p) in m.named_parameters()
+                    if any(pattern in n for pattern in self.no_weight_decay_name_list) \
+                        and p.trainable  # exclude bn._variance and bn._mean
+                ])
+            parameters = [{
+                "params": params_with_decay,
+                "weight_decay": self.weight_decay
+            }, {
+                "params": params_without_decay,
+                "weight_decay": 0.0
+            }]
+            # logger.debug(
+            #     f"params_without_decay: {[n for (n, p) in m.named_parameters() if any(pattern in n for pattern in self.no_weight_decay_name_list) and p.trainable]}"
+            # )
+            # exit(0)
+        else:
+            parameters = sum([m.parameters() for m in model_list],
+                             []) if model_list else None
+
         parameters = sum([m.parameters() for m in model_list],
                          []) if model_list else None
         opt = optim.RMSProp(
@@ -279,9 +312,8 @@ class AdamW(object):
 
         if self.one_dim_param_no_weight_decay:
             self.no_weight_decay_param_name_list += [
-                p.name
-                for model in model_list for n, p in model.named_parameters()
-                if len(p.shape) == 1
+                p.name for model in model_list
+                for n, p in model.named_parameters() if len(p.shape) == 1
             ] if model_list else []
 
         opt = optim.AdamW(

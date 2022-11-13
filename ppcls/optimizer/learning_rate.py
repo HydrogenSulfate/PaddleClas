@@ -17,7 +17,7 @@ from __future__ import (absolute_import, division, print_function,
 import math
 import types
 from abc import abstractmethod
-from typing import Union
+from typing import Union, Optional
 from paddle.optimizer import lr
 from ppcls.utils import logger
 
@@ -36,15 +36,18 @@ class LRBase(object):
         verbose (bool): If True, prints a message to stdout for each update. Defaults to False
     """
 
-    def __init__(self,
-                 epochs: int,
-                 step_each_epoch: int,
-                 learning_rate: float,
-                 warmup_epoch: int,
-                 warmup_start_lr: float,
-                 last_epoch: int,
-                 by_epoch: bool,
-                 verbose: bool=False) -> None:
+    def __init__(
+            self,
+            epochs: int,
+            step_each_epoch: int,
+            learning_rate: float,
+            warmup_epoch: int,
+            warmup_start_lr: float,
+            last_epoch: int,
+            by_epoch: bool,
+            #  warmup_by_epoch: bool,
+            warmup_steps: Optional[int]=None,
+            verbose: bool=False) -> None:
         """Initialize and record the necessary parameters
         """
         super(LRBase, self).__init__()
@@ -56,6 +59,9 @@ class LRBase(object):
         self.step_each_epoch = step_each_epoch
         self.learning_rate = learning_rate
         self.warmup_epoch = warmup_epoch
+        # if warmup_steps:
+        #     self.warmup_steps = warmup_steps
+        # else:
         self.warmup_steps = self.warmup_epoch if by_epoch else round(
             self.warmup_epoch * self.step_each_epoch)
         self.warmup_start_lr = warmup_start_lr
@@ -230,9 +236,15 @@ class Cosine(LRBase):
                  last_epoch=-1,
                  by_epoch=False,
                  **kwargs):
-        super(Cosine, self).__init__(epochs, step_each_epoch, learning_rate,
-                                     warmup_epoch, warmup_start_lr, last_epoch,
-                                     by_epoch)
+        super(Cosine, self).__init__(
+            epochs,
+            step_each_epoch,
+            learning_rate,
+            warmup_epoch,
+            warmup_start_lr,
+            last_epoch,
+            by_epoch,
+            warmup_by_epoch=False)
         self.T_max = (self.epochs - self.warmup_epoch) * self.step_each_epoch
         self.eta_min = eta_min
         if self.by_epoch:
@@ -394,6 +406,62 @@ class MultiStepDecay(LRBase):
         return learning_rate
 
 
+class CustomExponentialDecay(LRBase):
+    """CustomExponentialDecay learning rate decay for EfficientNetV2
+
+    Args:
+        epochs (int): total epoch(s)
+        step_each_epoch (int): number of iterations within an epoch
+        learning_rate (float): learning rate
+        gamma (float, optional): The Ratio that the learning rate will be reduced. ``new_lr = origin_lr * gamma``. It should be less than 1.0. Defaults to 0.1.
+        warmup_epoch (int, optional): The epoch numbers for LinearWarmup. Defaults to 0.
+        warmup_start_lr (float, optional): start learning rate within warmup. Defaults to 0.0.
+        last_epoch (int, optional): last epoch. Defaults to -1.
+        by_epoch (bool, optional): learning rate decays by epoch when by_epoch is True, else by iter. Defaults to False.
+    """
+
+    def __init__(self,
+                 epochs,
+                 step_each_epoch,
+                 learning_rate,
+                 gamma=0.1,
+                 decay_epochs=2.4,
+                 warmup_epoch=0,
+                 warmup_start_lr=0.0,
+                 last_epoch=-1,
+                 by_epoch=False,
+                 warmup_by_epoch=False,
+                 warmup_steps=None,
+                 **kwargs):
+        super(CustomExponentialDecay, self).__init__(
+            epochs, step_each_epoch, learning_rate, warmup_epoch,
+            warmup_start_lr, last_epoch, by_epoch, warmup_by_epoch,
+            warmup_steps)
+        self.gamma = gamma
+        self.decay_epochs = decay_epochs
+        self.decay_steps = self.step_each_epoch * self.decay_epochs
+
+    def __call__(self):
+        def _lr_lambda(step) -> float:
+            """return an factor which will be multiplied by learning_rate
+            """
+            if step < self.warmup_steps:
+                return step / self.warmup_steps
+            else:
+                p = step / self.decay_steps
+                p = math.floor(p)
+                return math.pow(self.gamma, p)
+
+        # use LambdaDecay instead of official ExponentialDecay in paddlepaddle at now.
+        learning_rate = lr.LambdaDecay(
+            learning_rate=self.learning_rate,
+            lr_lambda=_lr_lambda,
+            last_epoch=self.last_epoch)
+
+        setattr(learning_rate, "by_epoch", self.by_epoch)
+        return learning_rate
+
+
 class ReduceOnPlateau(LRBase):
     """ReduceOnPlateau learning rate decay
     Args:
@@ -421,6 +489,7 @@ class ReduceOnPlateau(LRBase):
         last_epoch (int, optional): last epoch. Defaults to -1.
         by_epoch (bool, optional): learning rate decays by epoch when by_epoch is True, else by iter. Defaults to False.
     """
+
     def __init__(self,
                  epochs,
                  step_each_epoch,
@@ -484,10 +553,11 @@ class CosineFixmatch(LRBase):
         step_each_epoch (int): number of iterations within an epoch
         learning_rate (float): learning rate
         num_warmup_steps (int): the number warmup steps.
-        warmunum_cycles (float, optional): the factor for cosine in FixMatch learning rate. Defaults to 7 / 16.
+        num_cycles (float, optional): the factor for cosine in FixMatch learning rate. Defaults to 7 / 16.
         last_epoch (int, optional): last epoch. Defaults to -1.
         by_epoch (bool, optional): learning rate decays by epoch when by_epoch is True, else by iter. Defaults to False.
     """
+
     def __init__(self,
                  epochs,
                  step_each_epoch,

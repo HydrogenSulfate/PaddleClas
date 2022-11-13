@@ -13,3 +13,4 @@
 # limitations under the License.
 from ppcls.engine.train.train import train_epoch
 from ppcls.engine.train.train_fixmatch import train_epoch_fixmatch
+from ppcls.engine.train.train_efficientnetv2 import train_epoch_efficientnetv2

@@ -319,6 +319,31 @@ class CropImage(object):
         return img[h_start:h_end, w_start:w_end, :]
 
 
+class CropImageAtRatio(object):
+    """ crop image """
+
+    def __init__(self, size, pad, interpolation="bilinear"):
+        if type(size) is int:
+            self.size = (size, size)
+            self.ratio = (size / (size + pad), size / (size + pad))
+        else:
+            self.size = size  # (h, w)
+            self.ratio = size / (size + pad)
+        self.interpolation = interpolation
+
+    def __call__(self, img):
+        img_h, img_w = img.shape[:2]
+        crop_size = int(self.ratio * min(img_w, img_h))
+
+        w_start = (img_w - crop_size) // 2
+        h_start = (img_h - crop_size) // 2
+
+        w_end = w_start + img_w
+        h_end = h_start + img_h
+        crop_img = img[h_start:h_end, w_start:w_end, :]
+        return F.resize(crop_img, self.size, self.interpolation)
+
+
 class Padv2(object):
     def __init__(self,
                  size=None,
@@ -721,8 +746,8 @@ class Pad(object):
         # Process fill color for affine transforms
         major_found, minor_found = (int(v)
                                     for v in PILLOW_VERSION.split('.')[:2])
-        major_required, minor_required = (
-            int(v) for v in min_pil_version.split('.')[:2])
+        major_required, minor_required = (int(v) for v in
+                                          min_pil_version.split('.')[:2])
         if major_found < major_required or (major_found == major_required and
                                             minor_found < minor_required):
             if fill is None:
