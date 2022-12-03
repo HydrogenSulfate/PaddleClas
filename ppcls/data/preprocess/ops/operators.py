@@ -323,25 +323,19 @@ class CropImageAtRatio(object):
     """ crop image """
 
     def __init__(self, size, pad, interpolation="bilinear"):
-        if type(size) is int:
-            self.size = (size, size)
-            self.ratio = (size / (size + pad), size / (size + pad))
-        else:
-            self.size = size  # (h, w)
-            self.ratio = size / (size + pad)
+        self.size = size  # int
+        self.ratio = size / (size + pad)
         self.interpolation = interpolation
 
     def __call__(self, img):
-        img_h, img_w = img.shape[:2]
-        crop_size = int(self.ratio * min(img_w, img_h))
+        height, width = img.shape[:2]
+        crop_size = int(self.ratio * min(height, width))
 
-        w_start = (img_w - crop_size) // 2
-        h_start = (img_h - crop_size) // 2
+        y = (height - crop_size) // 2
+        x = (width - crop_size) // 2
 
-        w_end = w_start + img_w
-        h_end = h_start + img_h
-        crop_img = img[h_start:h_end, w_start:w_end, :]
-        return F.resize(crop_img, self.size, self.interpolation)
+        crop_img = img[y:y + crop_size, x:x + crop_size, :]
+        return F.resize(crop_img, [self.size, self.size], self.interpolation)
 
 
 class Padv2(object):

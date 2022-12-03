@@ -103,7 +103,7 @@ DataLoader:
             to_rgb: True
             channel_first: False
         - CropImageAtRatio:
-            size: [384, 384]
+            size: 384
             pad: 32
             interpolation: bilinear
         - NormalizeImage:
@@ -128,7 +128,7 @@ Infer:
         to_rgb: True
         channel_first: False
     - CropImageAtRatio:
-        size: [384, 384]
+        size: 384
         pad: 32
         interpolation: bilinear
     - NormalizeImage:

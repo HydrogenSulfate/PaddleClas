@@ -32,48 +32,87 @@ MODEL_URLS = {"EfficientNetV2_S": "TODO"}
 
 __all__ = list(MODEL_URLS.keys())
 
-# def conv_kernel_initializer(shape, dtype=None, partition_info=None):
-#     """Initialization for convolutional kernels.
 
-#   The main difference with tf.variance_scaling_initializer is that
-#   tf.variance_scaling_initializer uses a truncated normal with an uncorrected
-#   standard deviation, whereas here we use a normal distribution. Similarly,
-#   tf.initializers.variance_scaling uses a truncated normal with
-#   a corrected standard deviation.
-
-#   Args:
-#     shape: shape of variable
-#     dtype: dtype of variable
-#     partition_info: unused
-
-#   Returns:
-#     an initialization for the variable
-#   """
-#     del partition_info
-#     kernel_height, kernel_width, _, out_filters = shape
-#     fan_out = int(kernel_height * kernel_width * out_filters)
-#     return Normal(shape, mean=0.0, stddev=np.sqrt(2.0 / fan_out), dtype=dtype)
-
-# def dense_kernel_initializer(shape, dtype=None, partition_info=None):
-#     """Initialization for dense kernels.
-
-#   This initialization is equal to
-#     tf.variance_scaling_initializer(scale=1.0/3.0, mode='fan_out',
-#                                     distribution='uniform').
-#   It is written out explicitly here for clarity.
-
-#   Args:
-#     shape: shape of variable
-#     dtype: dtype of variable
-#     partition_info: unused
+def cal_padding(img_size, stride, filter_size, dilation=1):
+    """Calculate padding size."""
+    if img_size % stride == 0:
+        out_size = max(filter_size - stride, 0)
+    else:
+        out_size = max(filter_size - (img_size % stride), 0)
+    return out_size // 2, out_size - out_size // 2
 
 
-#   Returns:
-#     an initialization for the variable
-#   """
-#     del partition_info
-#     init_range = 1.0 / np.sqrt(shape[1])
-#     return tf.random.uniform(shape, -init_range, init_range, dtype=dtype)
+inp_shape = {"S": [384, 192, 192, 96, 48, 24, 24, 12], }
+
+
+class Conv2ds(nn.Layer):
+    def __init__(self,
+                 input_channels,
+                 output_channels,
+                 filter_size,
+                 stride=1,
+                 padding=0,
+                 groups=None,
+                 name=None,
+                 act=None,
+                 use_bias=None,
+                 padding_type=None,
+                 model_name=None,
+                 cur_stage=None):
+        super(Conv2ds, self).__init__()
+        assert act in [None, "swish", "sigmoid"]
+        self.act = act
+
+        def get_padding(filter_size, stride=1, dilation=1):
+            padding = ((stride - 1) + dilation * (filter_size - 1)) // 2
+            return padding
+
+        inps = inp_shape["S"][cur_stage]
+        self.need_crop = False
+        if padding_type == "SAME":
+            top_padding, bottom_padding = cal_padding(inps, stride,
+                                                      filter_size)
+            left_padding, right_padding = cal_padding(inps, stride,
+                                                      filter_size)
+            height_padding = bottom_padding
+            width_padding = right_padding
+            if top_padding != bottom_padding or left_padding != right_padding:
+                height_padding = top_padding + stride
+                width_padding = left_padding + stride
+                self.need_crop = True
+            padding = [height_padding, width_padding]
+        elif padding_type == "VALID":
+            height_padding = 0
+            width_padding = 0
+            padding = [height_padding, width_padding]
+        elif padding_type == "DYNAMIC":
+            padding = get_padding(filter_size, stride)
+        else:
+            padding = padding_type
+
+        groups = 1 if groups is None else groups
+        self._conv = nn.Conv2D(
+            input_channels,
+            output_channels,
+            filter_size,
+            groups=groups,
+            stride=stride,
+            padding=padding,
+            weight_attr=None,
+            bias_attr=use_bias)
+
+    def forward(self, inputs):
+        x = self._conv(inputs)
+        if self.act == "swish":
+            x = F.swish(x)
+        elif self.act == "sigmoid":
+            x = F.sigmoid(x)
+
+        if self.need_crop:
+            x = x[:, :, 1:, 1:]
+        return x
+
+
 class BlockDecoder(object):
     """Block Decoder for readability."""
 
@@ -118,12 +157,12 @@ class BlockDecoder(object):
     def decode(self, string_list):
         """Decodes a list of string notations to specify blocks inside the network.
 
-    Args:
-      string_list: a list of strings, each string is a notation of block.
+        Args:
+        string_list: a list of strings, each string is a notation of block.
 
-    Returns:
-      A list of namedtuples to represent blocks arguments.
-    """
+        Returns:
+        A list of namedtuples to represent blocks arguments.
+        """
         assert isinstance(string_list, list)
         blocks_args = []
         for block_string in string_list:
@@ -133,11 +172,11 @@ class BlockDecoder(object):
     def encode(self, blocks_args):
         """Encodes a list of Blocks to a list of strings.
 
-    Args:
-      blocks_args: A list of namedtuples to represent blocks arguments.
-    Returns:
-      a list of strings, each string is a notation of block.
-    """
+        Args:
+        blocks_args: A list of namedtuples to represent blocks arguments.
+        Returns:
+        a list of strings, each string is a notation of block.
+        """
         block_strings = []
         for block in blocks_args:
             block_strings.append(self._encode_block_string(block))
@@ -323,19 +362,29 @@ class SE(nn.Layer):
     """Squeeze-and-excitation layer."""
 
     def __init__(self, local_pooling, act_fn, in_filters, se_filters,
-                 output_filters):
+                 output_filters, cur_stage, padding_type):
         super(SE, self).__init__()
 
         self._local_pooling = local_pooling
         self._act = activation_fn(act_fn)
 
         # Squeeze and Excitation layer.
-        self._se_reduce = nn.Conv2D(
-            in_filters, se_filters, kernel_size=1, stride=1)
-        self._se_expand = nn.Conv2D(
-            se_filters, output_filters, kernel_size=1, stride=1)
+        self._se_reduce = Conv2ds(
+            in_filters,
+            se_filters,
+            1,
+            stride=1,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
+        self._se_expand = Conv2ds(
+            se_filters,
+            output_filters,
+            1,
+            stride=1,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
 
-    def __call__(self, x):
+    def forward(self, x):
         if self._local_pooling:
             se_tensor = F.adaptive_avg_pool2d(x, output_size=1)
         else:
@@ -353,7 +402,7 @@ class MBConvBlock(nn.Layer):
 
     def __init__(self, se_ratio, input_filters, expand_ratio, kernel_size,
                  strides, output_filters, bn_momentum, bn_epsilon,
-                 local_pooling, conv_dropout):
+                 local_pooling, conv_dropout, cur_stage, padding_type):
         """Initializes a MBConv block.
 
         Args:
@@ -386,24 +435,28 @@ class MBConvBlock(nn.Layer):
         # Expansion phase. Called if not using fused convolutions and expansion
         # phase is necessary.
         if self.expand_ratio != 1:
-            self._expand_conv = nn.Conv2D(
+            self._expand_conv = Conv2ds(
                 self.input_filters,
                 expand_filters,
-                kernel_size=1,
+                1,
                 stride=1,
-                bias_attr=False)
+                use_bias=False,
+                cur_stage=cur_stage,
+                padding_type=padding_type)
             self._norm0 = nn.BatchNorm2D(expand_filters, self.bn_momentum,
                                          self.bn_epsilon)
 
         # Depth-wise convolution phase. Called if not using fused convolutions.
-        self._depthwise_conv = nn.Conv2D(
+        self._depthwise_conv = Conv2ds(
             expand_filters,
             expand_filters,
-            kernel_size=kernel_size,
+            kernel_size,
             padding=kernel_size // 2,
             stride=self.strides,
             groups=expand_filters,
-            bias_attr=False)
+            use_bias=False,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
 
         self._norm1 = nn.BatchNorm2D(expand_filters, self.bn_momentum,
                                      self.bn_epsilon)
@@ -412,17 +465,20 @@ class MBConvBlock(nn.Layer):
             num_reduced_filters = max(1,
                                       int(self.input_filters * self.se_ratio))
             self._se = SE(self._local_pooling, None, expand_filters,
-                          num_reduced_filters, expand_filters)
+                          num_reduced_filters, expand_filters, cur_stage,
+                          padding_type)
         else:
             self._se = None
 
         # Output phase.
-        self._project_conv = nn.Conv2D(
-            in_channels=expand_filters,
-            out_channels=self.output_filters,
-            kernel_size=1,
+        self._project_conv = Conv2ds(
+            expand_filters,
+            self.output_filters,
+            1,
             stride=1,
-            bias_attr=False)
+            use_bias=False,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
         self._norm2 = nn.BatchNorm2D(self.output_filters, self.bn_momentum,
                                      self.bn_epsilon)
         self.drop_out = nn.Dropout(self.conv_dropout)
@@ -436,7 +492,7 @@ class MBConvBlock(nn.Layer):
 
         return x
 
-    def __call__(self, inputs, survival_prob=None):
+    def forward(self, inputs, survival_prob=None):
         """Implementation of call().
 
         Args:
@@ -469,7 +525,7 @@ class FusedMBConvBlock(MBConvBlock):
 
     def __init__(self, se_ratio, input_filters, expand_ratio, kernel_size,
                  strides, output_filters, bn_momentum, bn_epsilon,
-                 local_pooling, conv_dropout):
+                 local_pooling, conv_dropout, cur_stage, padding_type):
         """Builds block according to the arguments."""
         super(MBConvBlock, self).__init__()
         self.se_ratio = se_ratio
@@ -493,13 +549,15 @@ class FusedMBConvBlock(MBConvBlock):
         kernel_size = self.kernel_size
         if self.expand_ratio != 1:
             # Expansion phase:
-            self._expand_conv = nn.Conv2D(
+            self._expand_conv = Conv2ds(
                 self.input_filters,
                 expand_filters,
-                kernel_size=kernel_size,
+                kernel_size,
                 padding=kernel_size // 2,
                 stride=self.strides,
-                bias_attr=False)
+                use_bias=False,
+                cur_stage=cur_stage,
+                padding_type=padding_type)
             self._norm0 = nn.BatchNorm2D(expand_filters, self.bn_momentum,
                                          self.bn_epsilon)
 
@@ -507,23 +565,26 @@ class FusedMBConvBlock(MBConvBlock):
             num_reduced_filters = max(1,
                                       int(self.input_filters * self.se_ratio))
             self._se = SE(self._local_pooling, None, expand_filters,
-                          num_reduced_filters, expand_filters)
+                          num_reduced_filters, expand_filters, cur_stage,
+                          padding_type)
         else:
             self._se = None
 
         # Output phase:
-        self._project_conv = nn.Conv2D(
+        self._project_conv = Conv2ds(
             expand_filters,
             self.output_filters,
-            kernel_size=1 if (self.expand_ratio != 1) else kernel_size,
+            1 if (self.expand_ratio != 1) else kernel_size,
             padding=(1 if (self.expand_ratio != 1) else kernel_size) // 2,
             stride=1 if (self.expand_ratio != 1) else self.strides,
-            bias_attr=False)
+            use_bias=False,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
         self._norm1 = nn.BatchNorm2D(self.output_filters, self.bn_momentum,
                                      self.bn_epsilon)
         self.drop_out = nn.Dropout(conv_dropout)
 
-    def __call__(self, inputs, survival_prob=None):
+    def forward(self, inputs, survival_prob=None):
         """Implementation of call().
 
         Args:
@@ -556,22 +617,25 @@ class Stem(nn.Layer):
     """Stem layer at the begining of the network."""
 
     def __init__(self, width_coefficient, depth_divisor, min_depth, skip,
-                 bn_momentum, bn_epsilon, act_fn, stem_filters):
+                 bn_momentum, bn_epsilon, act_fn, stem_filters, cur_stage,
+                 padding_type):
         super(Stem, self).__init__()
-        self._conv_stem = nn.Conv2D(
-            in_channels=3,
-            out_channels=round_filters(stem_filters, width_coefficient,
-                                       depth_divisor, min_depth, skip),
-            kernel_size=3,
+        self._conv_stem = Conv2ds(
+            3,
+            round_filters(stem_filters, width_coefficient, depth_divisor,
+                          min_depth, skip),
+            3,
             padding=1,
             stride=2,
-            bias_attr=False)
+            use_bias=False,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
         self._norm = nn.BatchNorm2D(
             round_filters(stem_filters, width_coefficient, depth_divisor,
                           min_depth, skip), bn_momentum, bn_epsilon)
         self._act = activation_fn(act_fn)
 
-    def __call__(self, inputs):
+    def forward(self, inputs):
         return self._act(self._norm(self._conv_stem(inputs)))
 
 
@@ -598,10 +662,9 @@ class Head(nn.Layer):
         self.dropout_rate = dropout_rate
         self.local_pooling = local_pooling
         self._conv_head = nn.Conv2D(
-            in_channels=in_filters,
-            out_channels=round_filters(self.feature_size or 1280,
-                                       width_coefficient, depth_divisor,
-                                       min_depth, skip),
+            in_filters,
+            round_filters(self.feature_size or 1280, width_coefficient,
+                          depth_divisor, min_depth, skip),
             kernel_size=1,
             stride=1,
             bias_attr=False)
@@ -618,7 +681,7 @@ class Head(nn.Layer):
         else:
             self._dropout = None
 
-    def __call__(self, x):
+    def forward(self, x):
         """Call the layer."""
         outputs = self._act(self._norm(self._conv_head(x)))
 
@@ -634,7 +697,6 @@ class Head(nn.Layer):
             if self._dropout:
                 outputs = self._dropout(outputs)
         return paddle.flatten(outputs, start_axis=1)
-        return outputs
 
 
 class EfficientNetV2(nn.Layer):
@@ -648,7 +710,8 @@ class EfficientNetV2(nn.Layer):
                  blocks_args=None,
                  mconfig=None,
                  include_top=True,
-                 class_num=1000):
+                 class_num=1000,
+                 padding_type="SAME"):
         """Initializes an `Model` instance.
 
         Args:
@@ -663,6 +726,7 @@ class EfficientNetV2(nn.Layer):
         """Builds a model."""
         self._blocks = nn.LayerList()
 
+        cur_stage = 0
         # Stem part.
         self._stem = Stem(
             self.mconfig.width_coefficient,
@@ -672,7 +736,10 @@ class EfficientNetV2(nn.Layer):
             self.mconfig.bn_momentum,
             self.mconfig.bn_epsilon,
             self.mconfig.act_fn,
-            stem_filters=self.blocks_args[0].input_filters)
+            stem_filters=self.blocks_args[0].input_filters,
+            cur_stage=cur_stage,
+            padding_type=padding_type)
+        cur_stage += 1
 
         # Builds blocks.
         for block_args in self.blocks_args:
@@ -701,20 +768,22 @@ class EfficientNetV2(nn.Layer):
             self._blocks.append(
                 conv_block(block_args.se_ratio, block_args.input_filters,
                            block_args.expand_ratio, block_args.kernel_size,
-                           block_args.strides, block_args.output_filters, self.
-                           mconfig.bn_momentum, self.mconfig.bn_epsilon, self.
-                           mconfig.local_pooling, self.mconfig.conv_dropout))
+                           block_args.strides, block_args.output_filters,
+                           self.mconfig.bn_momentum, self.mconfig.bn_epsilon,
+                           self.mconfig.local_pooling,
+                           self.mconfig.conv_dropout, cur_stage, padding_type))
             if block_args.num_repeat > 1:  # rest of blocks with the same block_arg
                 block_args.input_filters = block_args.output_filters
                 block_args.strides = 1
             for _ in range(block_args.num_repeat - 1):
                 self._blocks.append(
-                    conv_block(
-                        block_args.se_ratio, block_args.input_filters,
-                        block_args.expand_ratio, block_args.kernel_size,
-                        block_args.strides, block_args.output_filters,
-                        self.mconfig.bn_momentum, self.mconfig.bn_epsilon,
-                        self.mconfig.local_pooling, self.mconfig.conv_dropout))
+                    conv_block(block_args.se_ratio, block_args.input_filters,
+                               block_args.expand_ratio, block_args.kernel_size,
+                               block_args.strides, block_args.output_filters,
+                               self.mconfig.bn_momentum, self.mconfig.
+                               bn_epsilon, self.mconfig.local_pooling, self.
+                               mconfig.conv_dropout, cur_stage, padding_type))
+            cur_stage += 1
 
         # Head part.
         self._head = Head(
@@ -744,7 +813,7 @@ class EfficientNetV2(nn.Layer):
 
         self.apply(_init_weights)
 
-    def __call__(self, inputs):
+    def forward(self, inputs):
         """Implementation of call().
 
         Args:
