@@ -24,7 +24,6 @@ from ppcls.utils import logger
 
 class LRBase(object):
     """Base class for custom learning rates
-
     Args:
         epochs (int): total epoch(s)
         step_each_epoch (int): number of iterations within an epoch
@@ -36,18 +35,15 @@ class LRBase(object):
         verbose (bool): If True, prints a message to stdout for each update. Defaults to False
     """
 
-    def __init__(
-            self,
-            epochs: int,
-            step_each_epoch: int,
-            learning_rate: float,
-            warmup_epoch: int,
-            warmup_start_lr: float,
-            last_epoch: int,
-            by_epoch: bool,
-            #  warmup_by_epoch: bool,
-            warmup_steps: Optional[int]=None,
-            verbose: bool=False) -> None:
+    def __init__(self,
+                 epochs: int,
+                 step_each_epoch: int,
+                 learning_rate: float,
+                 warmup_epoch: int,
+                 warmup_start_lr: float,
+                 last_epoch: int,
+                 by_epoch: bool,
+                 verbose: bool=False) -> None:
         """Initialize and record the necessary parameters
         """
         super(LRBase, self).__init__()
@@ -59,9 +55,6 @@ class LRBase(object):
         self.step_each_epoch = step_each_epoch
         self.learning_rate = learning_rate
         self.warmup_epoch = warmup_epoch
-        # if warmup_steps:
-        #     self.warmup_steps = warmup_steps
-        # else:
         self.warmup_steps = self.warmup_epoch if by_epoch else round(
             self.warmup_epoch * self.step_each_epoch)
         self.warmup_start_lr = warmup_start_lr
@@ -72,7 +65,6 @@ class LRBase(object):
     @abstractmethod
     def __call__(self, *kargs, **kwargs) -> lr.LRScheduler:
         """generate an learning rate scheduler
-
         Returns:
             lr.LinearWarmup: learning rate scheduler
         """
@@ -82,10 +74,8 @@ class LRBase(object):
             self,
             learning_rate: Union[float, lr.LRScheduler]) -> lr.LinearWarmup:
         """Add an Linear Warmup before learning_rate
-
         Args:
             learning_rate (Union[float, lr.LRScheduler]): original learning rate without warmup
-
         Returns:
             lr.LinearWarmup: learning rate scheduler with warmup
         """
@@ -435,8 +425,7 @@ class CustomExponentialDecay(LRBase):
                  **kwargs):
         super(CustomExponentialDecay, self).__init__(
             epochs, step_each_epoch, learning_rate, warmup_epoch,
-            warmup_start_lr, last_epoch, by_epoch, warmup_by_epoch,
-            warmup_steps)
+            warmup_start_lr, last_epoch, by_epoch, warmup_by_epoch)
         self.gamma = gamma
         self.decay_epochs = decay_epochs
         self.decay_steps = self.step_each_epoch * self.decay_epochs

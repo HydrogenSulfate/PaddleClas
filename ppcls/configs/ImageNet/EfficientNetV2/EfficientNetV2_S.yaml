@@ -4,8 +4,8 @@ Global:
   pretrained_model: null
   output_dir: ./output/
   device: gpu
-  save_interval: -1
-  eval_during_train: False
+  save_interval: 1
+  eval_during_train: True
   eval_interval: 1
   epochs: 350
   print_batch_step: 20
@@ -40,21 +40,13 @@ Loss:
         weight: 1.0
 
 Optimizer:
-  name: RMSProp
+  name: Momentum
   momentum: 0.9
-  rho: 0.9
-  epsilon: 0.001
   no_weight_decay_name: .bias bn
   lr:
-    name: ConstLR
-    # learning_rate: 0.256 # for case of total_batchsize=4096(official efficientnetv2 use 16gpux256bs)
-    learning_rate: 0.128 # for case of total_batchsize=2048(our paddle use 8gpux256bs)
-    gamma: 0.97
-    decay_epochs: 2.4
+    name: Cosine
+    learning_rate: 0.65
     warmup_epoch: 5
-    warmup_start_lr: 0.0
-    by_epoch: False
-    # learning_rate: 0.001  # for debug
   regularizer:
     name: L2
     coeff: 0.00001
@@ -86,7 +78,7 @@ DataLoader:
 
     sampler:
       name: DistributedBatchSampler
-      batch_size: 128
+      batch_size: 256
       drop_last: True
       shuffle: True
     loader:
