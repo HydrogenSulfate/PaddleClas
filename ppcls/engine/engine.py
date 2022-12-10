@@ -34,6 +34,7 @@ from ppcls.loss import build_loss
 from ppcls.metric import build_metrics
 from ppcls.optimizer import build_optimizer
 from ppcls.utils.ema import ExponentialMovingAverage
+from ppcls.utils.swa import StochasticWeightAverage
 from ppcls.utils.save_load import load_dygraph_pretrain, load_dygraph_pretrain_from_url
 from ppcls.utils.save_load import init_model
 from ppcls.utils import save_load
@@ -126,16 +127,18 @@ class Engine(object):
                 self.config["DataLoader"], "Train", self.device, self.use_dali)
             if self.config["DataLoader"].get('UnLabelTrain', None) is not None:
                 self.unlabel_train_dataloader = build_dataloader(
-                        self.config["DataLoader"], "UnLabelTrain", self.device,
-                        self.use_dali)
+                    self.config["DataLoader"], "UnLabelTrain", self.device,
+                    self.use_dali)
             else:
                 self.unlabel_train_dataloader = None
 
-            self.iter_per_epoch = len(self.train_dataloader) - 1 if platform.system(
+            self.iter_per_epoch = len(
+                self.train_dataloader) - 1 if platform.system(
                 ) == "Windows" else len(self.train_dataloader)
             if self.config["Global"].get("iter_per_epoch", None):
                 # set max iteration per epoch mannualy, when training by iteration(s), such as XBM, FixMatch.
-                self.iter_per_epoch = self.config["Global"].get("iter_per_epoch")
+                self.iter_per_epoch = self.config["Global"].get(
+                    "iter_per_epoch")
             self.iter_per_epoch = self.iter_per_epoch // self.update_freq * self.update_freq
 
         if self.mode == "eval" or (self.mode == "train" and
@@ -310,6 +313,12 @@ class Engine(object):
             self.model_ema = ExponentialMovingAverage(
                 self.model, self.config['EMA'].get("decay", 0.9999))
 
+        self.swa = "SWA" in self.config and self.mode == "train"
+        if self.swa:
+            self.model_ema = StochasticWeightAverage(self.model)
+            logger.info(
+                "--------------------- Using SWA ---------------------")
+
         # check the gpu num
         world_size = dist.get_world_size()
         self.config["Global"]["distributed"] = world_size != 1
@@ -345,7 +354,7 @@ class Engine(object):
             "epoch": 0,
         }
         ema_module = None
-        if self.ema:
+        if self.ema or self.swa:
             best_metric_ema = 0.0
             ema_module = self.model_ema.module
         # key:
@@ -403,7 +412,7 @@ class Engine(object):
                         self.optimizer,
                         best_metric,
                         self.output_dir,
-                        ema=ema_module,
+                        ema=ema_module if self.ema else None,
                         model_name=self.config["Arch"]["name"],
                         prefix="best_model",
                         loss=self.train_loss_func,
@@ -432,7 +441,7 @@ class Engine(object):
                             {"metric": acc_ema,
                              "epoch": epoch_id},
                             self.output_dir,
-                            ema=ema_module,
+                            ema=ema_module if self.ema else None,
                             model_name=self.config["Arch"]["name"],
                             prefix="best_model_ema",
                             loss=self.train_loss_func)
@@ -465,6 +474,31 @@ class Engine(object):
                 model_name=self.config["Arch"]["name"],
                 prefix="latest",
                 loss=self.train_loss_func)
+
+        if self.swa:
+            # compute statistics of bn modules
+            self.model_ema.update_bn(self.train_dataloader, print_batch_step)
+
+            ori_model, self.model = self.model, ema_module
+            acc_swa = self.eval(self.config["Global"]["epochs"])
+            self.model = ori_model
+
+            save_load.save_model(
+                self.model,
+                self.optimizer, {"metric": acc_swa,
+                                 "epoch": epoch_id},
+                self.output_dir,
+                ema=ema_module,
+                model_name=self.config["Arch"]["name"],
+                prefix="latest",
+                loss=self.train_loss_func)
+            logger.info("[Eval][Epoch {}][best metric swa: {}]".format(
+                self.config["Global"]["epochs"], acc_swa))
+            logger.scaler(
+                name="eval_acc_swa",
+                value=acc_swa,
+                step=self.config["Global"]["epochs"],
+                writer=self.vdl_writer)
 
         if self.vdl_writer is not None:
             self.vdl_writer.close()

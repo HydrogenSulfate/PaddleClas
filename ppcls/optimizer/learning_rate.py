@@ -394,6 +394,65 @@ class MultiStepDecay(LRBase):
         return learning_rate
 
 
+class Cyclical(LRBase):
+    """Cyclical learning rate decay, decay from up_bound to lower_bound recurrently
+
+    Args:
+        epochs (int): total epoch(s)
+        step_each_epoch (int): number of iterations within an epoch
+        learning_rate (float): learning rate
+        lr_min (float): minimum learning rate.
+        cycle_length (int): epochs from lr_max to lr_min.
+        warmup_epoch (int, optional): The epoch numbers for LinearWarmup. Defaults to 0.
+        warmup_start_lr (float, optional): start learning rate within warmup. Defaults to 0.0.
+        last_epoch (int, optional): last epoch. Defaults to -1.
+        by_epoch (bool, optional): learning rate decays by epoch when by_epoch is True, else by iter. Defaults to False.
+    """
+
+    def __init__(self,
+                 epochs,
+                 step_each_epoch,
+                 learning_rate,
+                 lr_min,
+                 cycle_length,
+                 warmup_epoch=0,
+                 warmup_start_lr=0.0,
+                 last_epoch=-1,
+                 by_epoch=False,
+                 **kwargs):
+        super(Cyclical, self).__init__(epochs, step_each_epoch, learning_rate,
+                                       warmup_epoch, warmup_start_lr,
+                                       last_epoch, by_epoch)
+        self.lr_max = learning_rate
+        self.lr_min = lr_min
+        self.cycle_length = cycle_length
+        if not by_epoch:
+            self.cycle_length = step_each_epoch
+        assert isinstance(self.cycle_length, int) and self.cycle_length > 1, \
+            f"assert cycle_length > 1"
+        assert self.lr_max >= self.lr_min, \
+            f"assert lr_max({learning_rate}) >= lr_min({lr_min})"
+
+    def __call__(self):
+        def _lr_lambda(current_step):
+            _len = self.lr_min / self.lr_max - 1.0
+            percent = (current_step % self.cycle_length) / (
+                self.cycle_length - 1)
+            factor = 1.0 + _len * percent
+            return factor
+
+        learning_rate = lr.LambdaDecay(
+            learning_rate=self.learning_rate,
+            lr_lambda=_lr_lambda,
+            last_epoch=self.last_epoch)
+
+        if self.warmup_steps > 0:
+            learning_rate = self.linear_warmup(learning_rate)
+
+        setattr(learning_rate, "by_epoch", self.by_epoch)
+        return learning_rate
+
+
 class ReduceOnPlateau(LRBase):
     """ReduceOnPlateau learning rate decay
     Args:
@@ -421,6 +480,7 @@ class ReduceOnPlateau(LRBase):
         last_epoch (int, optional): last epoch. Defaults to -1.
         by_epoch (bool, optional): learning rate decays by epoch when by_epoch is True, else by iter. Defaults to False.
     """
+
     def __init__(self,
                  epochs,
                  step_each_epoch,
@@ -488,6 +548,7 @@ class CosineFixmatch(LRBase):
         last_epoch (int, optional): last epoch. Defaults to -1.
         by_epoch (bool, optional): learning rate decays by epoch when by_epoch is True, else by iter. Defaults to False.
     """
+
     def __init__(self,
                  epochs,
                  step_each_epoch,

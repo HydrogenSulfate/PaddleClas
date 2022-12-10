@@ -17,7 +17,7 @@ from copy import deepcopy
 import paddle
 
 
-class ExponentialMovingAverage():
+class ExponentialMovingAverage(object):
     """
     Exponential Moving Average
     Code was heavily based on https://github.com/rwightman/pytorch-image-models/blob/master/timm/utils/model_ema.py
@@ -32,11 +32,14 @@ class ExponentialMovingAverage():
 
     @paddle.no_grad()
     def _update(self, model, update_fn):
-        for ema_v, model_v in zip(self.module.state_dict().values(), model.state_dict().values()):
+        for ema_v, model_v in zip(self.module.state_dict().values(),
+                                  model.state_dict().values()):
             ema_v.set_value(update_fn(ema_v, model_v))
 
     def update(self, model):
-        self._update(model, update_fn=lambda e, m: self.decay * e + (1. - self.decay) * m)
+        self._update(
+            model,
+            update_fn=lambda e, m: self.decay * e + (1. - self.decay) * m)
 
     def set(self, model):
         self._update(model, update_fn=lambda e, m: m)
