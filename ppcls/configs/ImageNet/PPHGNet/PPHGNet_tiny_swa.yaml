@@ -50,6 +50,7 @@ Optimizer:
     learning_rate: 1.0e-3
     lr_min: 1.0e-5
     cycle_length: *cyclic_length
+    strategy: cosine
     by_epoch: False
   regularizer:
     name: "L2"

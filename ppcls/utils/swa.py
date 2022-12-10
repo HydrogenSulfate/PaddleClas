@@ -32,7 +32,6 @@ class StochasticWeightAverage(ExponentialMovingAverage):
                    SyncBatchNorm)
 
     def __init__(self, model, cyclic_length=1):
-        super().__init__()
         # make a copy of the model for accumulating moving average of weights
         self.module = deepcopy(model)
         self.count = 1

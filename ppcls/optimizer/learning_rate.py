@@ -401,8 +401,9 @@ class Cyclical(LRBase):
         epochs (int): total epoch(s)
         step_each_epoch (int): number of iterations within an epoch
         learning_rate (float): learning rate
-        lr_min (float): minimum learning rate.
-        cycle_length (int): epochs from lr_max to lr_min.
+        lr_min (float): minimum learning rate
+        cycle_length (int): epochs from lr_max to lr_min
+        strategy (str, optional): decay strategy from learning_rate to lr_min. Defaults to "linear".
         warmup_epoch (int, optional): The epoch numbers for LinearWarmup. Defaults to 0.
         warmup_start_lr (float, optional): start learning rate within warmup. Defaults to 0.0.
         last_epoch (int, optional): last epoch. Defaults to -1.
@@ -415,6 +416,7 @@ class Cyclical(LRBase):
                  learning_rate,
                  lr_min,
                  cycle_length,
+                 strategy: str="linear",
                  warmup_epoch=0,
                  warmup_start_lr=0.0,
                  last_epoch=-1,
@@ -426,6 +428,7 @@ class Cyclical(LRBase):
         self.lr_max = learning_rate
         self.lr_min = lr_min
         self.cycle_length = cycle_length
+        self.strategy = strategy
         if not by_epoch:
             self.cycle_length *= step_each_epoch
 
@@ -435,18 +438,26 @@ class Cyclical(LRBase):
             f"assert lr_max({learning_rate}) >= lr_min({lr_min})"
 
     def __call__(self):
-        def _linear_fn(current_step):
+        delta = (self.lr_min / self.lr_max) - 1.0
+
+        def _linear_fn(current_step) -> float:
             # calculate an factor linearly
-            _len = self.lr_min / self.lr_max - 1.0
             percent = (current_step % self.cycle_length) / (
                 self.cycle_length - 1)
-            factor = 1.0 + _len * percent
-            # lr=factor*self.learning_rate
+            factor = 1.0 + delta * percent
+            return factor
+
+        def _cosine_fn(current_step) -> float:
+            # T=2pi/mu, T/2=cycle_length ==> mu=pi/cycle_length
+            mu = math.pi / self.cycle_length
+            percent = 1.0 - (1.0 + math.cos(mu * (current_step %
+                                                  self.cycle_length))) / 2.0
+            factor = 1.0 + delta * percent
             return factor
 
         learning_rate = lr.LambdaDecay(
             learning_rate=self.learning_rate,
-            lr_lambda=_linear_fn,
+            lr_lambda=eval(f"_{self.strategy}_fn"),
             last_epoch=self.last_epoch)
 
         if self.warmup_steps > 0:
