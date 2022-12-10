@@ -96,10 +96,6 @@ def train_epoch(engine, epoch_id, print_batch_step):
             log_info(engine, batch_size, epoch_id, iter_id)
         tic = time.time()
 
-    # update swa
-    if engine.swa:
-        engine.model_ema.update(engine.model)
-
     # step lr(by epoch)
     for i in range(len(engine.lr_sch)):
         if getattr(engine.lr_sch[i], "by_epoch", False) and \

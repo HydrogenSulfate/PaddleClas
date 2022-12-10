@@ -24,6 +24,9 @@ AMP:
   # O1: mixed fp16
   level: O1
 
+SWA:
+  cyclic_length: &cyclic_length 1
+
 # model architecture
 Arch:
   name: PPHGNet_tiny
@@ -46,7 +49,7 @@ Optimizer:
     name: Cyclical
     learning_rate: 1.0e-3
     lr_min: 1.0e-5
-    cycle_length: 1
+    cycle_length: *cyclic_length
     by_epoch: False
   regularizer:
     name: "L2"

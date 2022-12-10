@@ -453,6 +453,31 @@ class Engine(object):
                         step=epoch_id,
                         writer=self.vdl_writer)
 
+                if self.swa and epoch_id % self.model_ema.cyclic_length == 0:
+                    self.model_ema.update(self.model)
+                    self.model_ema.update_bn(self.train_dataloader,
+                                             print_batch_step)
+                    ori_model, self.model = self.model, ema_module
+                    acc_swa = self.eval(epoch_id)
+                    self.model = ori_model
+                    if acc_ema > best_metric_ema:
+                        save_load.save_model(
+                            self.model,
+                            self.optimizer,
+                            {"metric": acc_swa,
+                             "epoch": epoch_id},
+                            self.output_dir,
+                            ema=ema_module,
+                            model_name=self.config["Arch"]["name"],
+                            prefix="best_model_swa",
+                            loss=self.train_loss_func)
+                    logger.info("[Eval][Epoch {}][best metric swa: {}]".format(
+                        epoch_id, acc_swa))
+                    logger.scaler(
+                        name="eval_acc_swa",
+                        value=acc_swa,
+                        step=epoch_id,
+                        writer=self.vdl_writer)
             # save model
             if save_interval > 0 and epoch_id % save_interval == 0:
                 save_load.save_model(
@@ -474,31 +499,6 @@ class Engine(object):
                 model_name=self.config["Arch"]["name"],
                 prefix="latest",
                 loss=self.train_loss_func)
-
-        if self.swa:
-            # compute statistics of bn modules
-            self.model_ema.update_bn(self.train_dataloader, print_batch_step)
-
-            ori_model, self.model = self.model, ema_module
-            acc_swa = self.eval(self.config["Global"]["epochs"])
-            self.model = ori_model
-
-            save_load.save_model(
-                self.model,
-                self.optimizer, {"metric": acc_swa,
-                                 "epoch": epoch_id},
-                self.output_dir,
-                ema=ema_module,
-                model_name=self.config["Arch"]["name"],
-                prefix="latest",
-                loss=self.train_loss_func)
-            logger.info("[Eval][Epoch {}][best metric swa: {}]".format(
-                self.config["Global"]["epochs"], acc_swa))
-            logger.scaler(
-                name="eval_acc_swa",
-                value=acc_swa,
-                step=self.config["Global"]["epochs"],
-                writer=self.vdl_writer)
 
         if self.vdl_writer is not None:
             self.vdl_writer.close()

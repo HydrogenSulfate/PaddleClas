@@ -427,23 +427,26 @@ class Cyclical(LRBase):
         self.lr_min = lr_min
         self.cycle_length = cycle_length
         if not by_epoch:
-            self.cycle_length = step_each_epoch
+            self.cycle_length *= step_each_epoch
+
         assert isinstance(self.cycle_length, int) and self.cycle_length > 1, \
             f"assert cycle_length > 1"
         assert self.lr_max >= self.lr_min, \
             f"assert lr_max({learning_rate}) >= lr_min({lr_min})"
 
     def __call__(self):
-        def _lr_lambda(current_step):
+        def _linear_fn(current_step):
+            # calculate an factor linearly
             _len = self.lr_min / self.lr_max - 1.0
             percent = (current_step % self.cycle_length) / (
                 self.cycle_length - 1)
             factor = 1.0 + _len * percent
+            # lr=factor*self.learning_rate
             return factor
 
         learning_rate = lr.LambdaDecay(
             learning_rate=self.learning_rate,
-            lr_lambda=_lr_lambda,
+            lr_lambda=_linear_fn,
             last_epoch=self.last_epoch)
 
         if self.warmup_steps > 0:
