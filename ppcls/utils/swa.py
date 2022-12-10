@@ -50,7 +50,7 @@ class StochasticWeightAverage(ExponentialMovingAverage):
         # α1 = 0.001, α2 = 1e-5 and c = 1.
 
         # store statistics of bn modules in model
-        momenta_log = {}
+        momentum_log = {}
         mean_log = {}
         variance_log = {}
         bn_layers_cnt = 0
@@ -59,7 +59,7 @@ class StochasticWeightAverage(ExponentialMovingAverage):
                 module._mean = paddle.zeros_like(module._mean)  # set to zero
                 module._variance = paddle.ones_like(
                     module._variance)  # set to zero
-                momenta_log[module] = module._momentum
+                momentum_log[module] = module._momentum
                 mean_log[module] = paddle.zeros_like(module._mean)
                 variance_log[module] = paddle.ones_like(module._variance)
                 bn_layers_cnt += 1
@@ -72,33 +72,29 @@ class StochasticWeightAverage(ExponentialMovingAverage):
         was_training = self.module.training
         self.module.train()
         # set momentum of bn modules to 0.0, for getting mean and var per batch
-        for bn_module in momenta_log.keys():
+        for bn_module in momentum_log.keys():
             bn_module._momentum = 0.0
 
         # compute statistics of bn modules by forward in dataloader(always train_datalaoder) iterally
+        inputs_seen = 0
         for i, batch in enumerate(loader):
-            self.module(batch[0], batch[1])
-            decay = i / (i + 1)
-            for bn_module in momenta_log.keys():
-                mean_log[bn_module] = decay * mean_log[bn_module] + (
-                    1. - decay) * bn_module._mean
-                variance_log[bn_module] = decay * variance_log[bn_module] + (
-                    1. - decay) * bn_module._variance
+            batch_size = batch[0].shape
+            current_momentum = inputs_seen / (inputs_seen + batch_size)
+            for bn_module in momentum_log.keys():
+                bn_module._momentum = current_momentum
 
+            # forward pass
+            self.module(batch[0], batch[1])
+
+            inputs_seen += batch_size
             if i % print_batch_step == 0 or (i + 1) == len(loader):
                 logger.info(
                     f"Updating statistics for BatchNorm layers process: [{i}/{len(loader)}"
                 )
 
-        world_size = dist.get_world_size()
-        for bn_module in momenta_log.keys():
-            bn_module._momentum = momenta_log[bn_module]
+        for bn_module in momentum_log.keys():
+            bn_module._momentum = momentum_log[bn_module]
             bn_module._mean.set_value(mean_log[bn_module])
             bn_module._variance.set_value(variance_log[bn_module])
-            if world_size > 1:
-                dist.all_reduce(bn_module._mean)
-                bn_module._mean /= world_size
-                dist.all_reduce(bn_module._variance)
-                bn_module._variance /= world_size
 
         self.module.train(was_training)
