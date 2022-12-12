@@ -23,7 +23,7 @@ from ppcls.utils import logger
 from .ema import ExponentialMovingAverage
 
 
-class StochasticWeightAverage(ExponentialMovingAverage):
+class StochasticWeightAverage(object):
     """
     Stochastic Weight Averaging
     refer to https://arxiv.org/abs/1803.05407
@@ -34,28 +34,36 @@ class StochasticWeightAverage(ExponentialMovingAverage):
     def __init__(self, model, cyclic_length=1):
         # make a copy of the model for accumulating moving average of weights
         self.module = deepcopy(model)
-        self.count = 1
         self.cyclic_length = cyclic_length
+        n_swa = paddle.to_tensor(0, dtype="int64")
+        self.module.register_buffer("n_swa", n_swa)
+
+    @paddle.no_grad()
+    def _update(self, model, update_fn):
+        for ema_v, model_v in zip(self.module.parameters(),
+                                  model.parameters()):
+            ema_v.set_value(update_fn(ema_v, model_v))
 
     def update(self, model):
         # dynamic decay in SWA
-        self.decay = (self.count / (self.count + 1))
+        self.decay = (self.module.n_swa.item() /
+                      (self.module.n_swa.item() + 1))
         self._update(
             model,
             update_fn=lambda e, m: self.decay * e + (1. - self.decay) * m)
-        self.count += 1
+        self.module.n_swa += 1
 
     @paddle.no_grad()
     def update_bn(self, loader, print_batch_step=20):
-        # store statistics of bn modules in model
+        # store momenta of bn modules in model
         momentum = {}
         bn_layers_cnt = 0
         for module in self.module.sublayers(True):
             if isinstance(module, self._BN_CLASSES):
                 momentum[module] = module._momentum
-                # reset mean an var to zero for precise-BN
-                module._mean = paddle.zeros_like(module._mean)
-                module._variance = paddle.ones_like(module._variance)
+                # reset mean an var to zero, prepare for precise-BN
+                module._mean.set_value(paddle.zeros_like(module._mean))
+                module._variance.set_value(paddle.ones_like(module._variance))
                 bn_layers_cnt += 1
 
         # do nothing if there is no bn module
@@ -72,21 +80,22 @@ class StochasticWeightAverage(ExponentialMovingAverage):
         # compute statistics of bn modules by forward in dataloader(always train_datalaoder) iterally
         inputs_seen = 0
         for i, batch in enumerate(loader):
-            batch_size = batch[0].shape
+            batch_size = batch[0].shape[0]
             current_momentum = inputs_seen / (inputs_seen + batch_size)
             for bn_module in momentum.keys():
                 bn_module._momentum = current_momentum
 
             # forward pass
-            self.module(batch[0], batch[1])
+            self.module(batch[0])
 
             inputs_seen += batch_size
             if i % print_batch_step == 0 or (i + 1) == len(loader):
                 logger.info(
-                    f"Updating statistics for BatchNorm layers process: [{i}/{len(loader)}"
+                    f"Updating statistics for BatchNorm layers process: [{i}/{len(loader)}]"
                 )
 
         for bn_module in momentum.keys():
             bn_module._momentum = momentum[bn_module]
 
-        self.module.train(was_training)
+        if not was_training:
+            self.module.training = False

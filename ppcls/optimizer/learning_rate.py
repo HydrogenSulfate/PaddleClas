@@ -395,15 +395,15 @@ class MultiStepDecay(LRBase):
 
 
 class Cyclical(LRBase):
-    """Cyclical learning rate decay, decay from up_bound to lower_bound recurrently
+    """Cyclical learning rate decay, decay from learning_rate to lr_min recurrently
 
     Args:
         epochs (int): total epoch(s)
         step_each_epoch (int): number of iterations within an epoch
-        learning_rate (float): learning rate
+        learning_rate (float): maximum learning rate
         lr_min (float): minimum learning rate
-        cycle_length (int): epochs from lr_max to lr_min
-        strategy (str, optional): decay strategy from learning_rate to lr_min. Defaults to "linear".
+        cycle_length (int): steps from lr_max to lr_min within one decay cycle
+        strategy (str, optional): decay strategy from learning_rate to lr_min. Defaults to "cosine".
         warmup_epoch (int, optional): The epoch numbers for LinearWarmup. Defaults to 0.
         warmup_start_lr (float, optional): start learning rate within warmup. Defaults to 0.0.
         last_epoch (int, optional): last epoch. Defaults to -1.
@@ -416,7 +416,7 @@ class Cyclical(LRBase):
                  learning_rate,
                  lr_min,
                  cycle_length,
-                 strategy: str="linear",
+                 strategy: str="cosine",
                  warmup_epoch=0,
                  warmup_start_lr=0.0,
                  last_epoch=-1,
@@ -441,7 +441,7 @@ class Cyclical(LRBase):
         delta = (self.lr_min / self.lr_max) - 1.0
 
         def _linear_fn(current_step) -> float:
-            # calculate an factor linearly
+            # decay linearly
             percent = (current_step % self.cycle_length) / (
                 self.cycle_length - 1)
             factor = 1.0 + delta * percent

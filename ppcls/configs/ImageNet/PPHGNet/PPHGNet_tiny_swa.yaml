@@ -47,8 +47,8 @@ Optimizer:
   momentum: 0.9
   lr:
     name: Cyclical
-    learning_rate: 1.0e-3
-    lr_min: 1.0e-5
+    learning_rate: 0.05
+    lr_min: 0.005
     cycle_length: *cyclic_length
     strategy: cosine
     by_epoch: False
@@ -105,7 +105,7 @@ DataLoader:
       drop_last: False
       shuffle: True
     loader:
-      num_workers: 4
+      num_workers: 8
       use_shared_memory: True
 
   Eval:

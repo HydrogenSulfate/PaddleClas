@@ -316,8 +316,6 @@ class Engine(object):
         self.swa = "SWA" in self.config and self.mode == "train"
         if self.swa:
             self.model_ema = StochasticWeightAverage(self.model)
-            logger.info(
-                "--------------------- Using SWA ---------------------")
 
         # check the gpu num
         world_size = dist.get_world_size()
@@ -460,7 +458,8 @@ class Engine(object):
                     ori_model, self.model = self.model, ema_module
                     acc_swa = self.eval(epoch_id)
                     self.model = ori_model
-                    if acc_ema > best_metric_ema:
+                    if acc_swa > best_metric_ema:
+                        best_metric_ema = acc_swa
                         save_load.save_model(
                             self.model,
                             self.optimizer,
