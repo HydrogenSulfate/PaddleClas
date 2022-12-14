@@ -85,7 +85,7 @@ class RandAugment(object):
             "solarize": 256.0 * abso_level,
             "solarize_add": 110.0 * abso_level,
             "contrast": 1.8 * abso_level + 0.1,
-            "sharpness": 1.8 * abso_level * 0.1,
+            "sharpness": 1.8 * abso_level + 0.1,
             "brightness": 1.8 * abso_level + 0.1,
             "autocontrast": 0,
             "equalize": 0,
@@ -126,9 +126,9 @@ class RandAugment(object):
                 Image.AFFINE,
                 (1, 0, 0, 0, 1, magnitude * img.size[1] * rnd_ch_op([-1, 1])),
                 fillcolor=fillcolor),
-            "rotate": lambda img, magnitude: rotate_with_fill(img, magnitude),
+            "rotate": lambda img, magnitude: rotate_with_fill(img, magnitude * rnd_ch_op([-1, 1])),
             "color": lambda img, magnitude: ImageEnhance.Color(img).enhance(
-                1 + magnitude * rnd_ch_op([-1, 1])),
+                1 + magnitude),
             "posterize": lambda img, magnitude:
                 ImageOps.posterize(img, magnitude),
             "solarize": lambda img, magnitude:
@@ -137,13 +137,13 @@ class RandAugment(object):
                 solarize_add(img, magnitude),
             "contrast": lambda img, magnitude:
                 ImageEnhance.Contrast(img).enhance(
-                    1 + magnitude * rnd_ch_op([-1, 1])),
+                    1 + magnitude),
             "sharpness": lambda img, magnitude:
                 ImageEnhance.Sharpness(img).enhance(
-                    1 + magnitude * rnd_ch_op([-1, 1])),
+                    1 + magnitude),
             "brightness": lambda img, magnitude:
                 ImageEnhance.Brightness(img).enhance(
-                    1 + magnitude * rnd_ch_op([-1, 1])),
+                    1 + magnitude),
             "autocontrast": lambda img, magnitude:
                 ImageOps.autocontrast(img),
             "equalize": lambda img, magnitude: ImageOps.equalize(img),

@@ -226,15 +226,9 @@ class Cosine(LRBase):
                  last_epoch=-1,
                  by_epoch=False,
                  **kwargs):
-        super(Cosine, self).__init__(
-            epochs,
-            step_each_epoch,
-            learning_rate,
-            warmup_epoch,
-            warmup_start_lr,
-            last_epoch,
-            by_epoch,
-            warmup_by_epoch=False)
+        super(Cosine, self).__init__(epochs, step_each_epoch, learning_rate,
+                                     warmup_epoch, warmup_start_lr, last_epoch,
+                                     by_epoch)
         self.T_max = (self.epochs - self.warmup_epoch) * self.step_each_epoch
         self.eta_min = eta_min
         if self.by_epoch:

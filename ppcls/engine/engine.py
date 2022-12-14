@@ -119,99 +119,9 @@ class Engine(object):
         #TODO(gaotingquan): support rec
         class_num = config["Arch"].get("class_num", None)
         self.config["DataLoader"].update({"class_num": class_num})
-
-        # # # 参数量对齐
-        # self.model = build_model(self.config, self.mode)
-        # # num_param = 0
-        # # for n, p in self.model.named_parameters():
-        # #     if isinstance(p, paddle.Tensor):
-        # #         if "_mean" in n or "_var" in n:
-        # #             continue
-        # #         # print(f"{n} | {p.shape}")
-        # #         num_param += np.prod(list(p.shape))
-        # # print(f"num_param = {num_param}")
-        # # exit(0)
-
-        # # 参数初始化对齐
-        # # for n, p in self.model.named_parameters():
-        # #     if isinstance(p, paddle.Tensor):
-        # #         if "_mean" in n or "_var" in n:
-        # #             continue
-        # #         print(f"{n}|{p.shape}|{p.mean().item():.10f}|{p.std().item():.10f}")
-        # # exit(0)
-        # # # 加载相同初始参数
-        # if self.config["Global"]["pretrained_model"] is not None:
-        #     if self.config["Global"]["pretrained_model"].startswith("http"):
-        #         load_dygraph_pretrain_from_url(
-        #             [self.model, getattr(self, 'train_loss_func', None)],
-        #             self.config["Global"]["pretrained_model"])
-        #     else:
-        #         load_dygraph_pretrain(
-        #             [self.model, getattr(self, 'train_loss_func', None)],
-        #             self.config["Global"]["pretrained_model"])
-
-        # # # BN层eps和momentum对齐
-        # # # for m in self.model.sublayers(True):
-        # # #     if hasattr(m, "_epsilon"):
-        # # #         print(f"{m._epsilon} {m._momentum}")
-        # # # exit()
-
-        # # 前向对齐
-        # # tf_weights = np.load("/workspace/hesensen/EfficientNetV2_reprod/random_input/tf_stem_conv.npy")
-        # # pd_weights = self.model.conv_stem.weight.numpy().transpose((2, 3, 1, 0))
-        # # print(tf_weights.mean(), tf_weights.std())
-        # # print(pd_weights.mean(), pd_weights.std())
-        # # print(np.allclose(pd_weights, tf_weights))
-        # # exit(0)
-        # # self.model.eval()
-        # # with paddle.no_grad():
-        # #     for i in range(10):
-        # #         x_numpy = np.load(f"/workspace/hesensen/EfficientNetV2_reprod/random_input/random_input_{i}.npy")
-        # #         x = paddle.to_tensor(x_numpy.astype("float32"))
-        # #         out = self.model(x)
-        # #         np.save(f"/workspace/hesensen/EfficientNetV2_reprod/random_input/paddle_output_{i}.npy", out.numpy())
-        # #         print(f"[{i}] {out.shape} {out.min().item():.10f} {out.max().item():.10f} {out.mean().item():.10f}  {out.std(unbiased=False).item():.10f}")
-        #         # print("paddle forward finished")
-
-        # # 反向对齐
-        # if self.mode == "train":
-        #     label_loss_info = self.config["Loss"]["Train"]
-        #     self.train_loss_func = build_loss(label_loss_info)
-        #     unlabel_loss_info = self.config.get("UnLabelLoss", {}).get("Train",
-        #                                                                None)
-        #     self.unlabel_train_loss_func = build_loss(unlabel_loss_info)
-        # if self.mode == "eval" or (self.mode == "train" and
-        #                            self.config["Global"]["eval_during_train"]):
-        #     loss_config = self.config.get("Loss", None)
-        #     if loss_config is not None:
-        #         loss_config = loss_config.get("Eval")
-        #         if loss_config is not None:
-        #             self.eval_loss_func = build_loss(loss_config)
-        #         else:
-        #             self.eval_loss_func = None
-        #     else:
-        #         self.eval_loss_func = None
-
-        # self.iter_per_epoch = 2000
-        # self.optimizer, self.lr_sch = build_optimizer(
-        #     self.config["Optimizer"], self.config["Global"]["epochs"],
-        #     self.iter_per_epoch // self.update_freq,
-        #     [self.model, self.train_loss_func])
-
-        # # with paddle.no_grad():
-        # for i in range(10):
-        #     x_numpy = np.load(f"/workspace/hesensen/EfficientNetV2_reprod/random_input/random_input_{i}.npy")
-        #     label = paddle.to_tensor([i]).astype("int64").reshape([1, 1])
-        #     x = paddle.to_tensor(x_numpy.astype("float32"))
-        #     out = self.model(x)
-        #     loss_dict = self.train_loss_func(out, label)
-        #     loss_item = loss_dict["loss"]
-        #     print(f"[{i}] {self.optimizer[0].get_lr():.10f} {float(loss_item):.10f}")
-        #     loss_item.backward()
-        #     self.optimizer[0].step()
-        #     self.optimizer[0].clear_grad()
-        #         # self.lr_sch[0].step()
-        # exit(0)
+        self.config["DataLoader"].update({
+            "epochs": self.config["Global"]["epochs"]
+        })
 
         # build dataloader
         if self.mode == 'train':
@@ -232,6 +142,7 @@ class Engine(object):
                 self.iter_per_epoch = self.config["Global"].get(
                     "iter_per_epoch")
             self.iter_per_epoch = self.iter_per_epoch // self.update_freq * self.update_freq
+
         if self.mode == "eval" or (self.mode == "train" and
                                    self.config["Global"]["eval_during_train"]):
             if self.eval_mode in ["classification", "adaface"]:
@@ -327,11 +238,6 @@ class Engine(object):
                 self.iter_per_epoch // self.update_freq,
                 [self.model, self.train_loss_func])
 
-        # for e in range(self.config["Global"]["epochs"]):
-        #     for i in range(self.iter_per_epoch):
-        #         print(f"{self.lr_sch[0].get_lr():.10f}")
-        #         self.lr_sch[0].step()
-        # exit(0)
         # AMP training and evaluating
         self.amp = "AMP" in self.config and self.config["AMP"] is not None
         self.amp_eval = False
@@ -428,6 +334,20 @@ class Engine(object):
             )) > 0:
                 self.train_loss_func = paddle.DataParallel(
                     self.train_loss_func)
+
+            # set different seed in different GPU manually in distributed environment
+            if seed is None:
+                logger.warning(
+                    "The random seed cannot be None in a distributed environment. Global.seed has been set to 42 by default"
+                )
+                self.config["Global"]["seed"] = seed = 42
+            logger.info(
+                f"Set random seed to ({int(seed)} + $PADDLE_TRAINER_ID) for different trainer"
+            )
+            paddle.seed(int(seed) + dist.get_rank())
+            np.random.seed(int(seed) + dist.get_rank())
+            random.seed(int(seed) + dist.get_rank())
+
         # build postprocess for infer
         if self.mode == 'infer':
             self.preprocess_func = create_operators(self.config["Infer"][
@@ -472,98 +392,98 @@ class Engine(object):
             # for one epoch train
             self.train_epoch_func(self, epoch_id, print_batch_step)
 
-            # if self.use_dali:
-            #     self.train_dataloader.reset()
-            # metric_msg = ", ".join(
-            #     [self.output_info[key].avg_info for key in self.output_info])
-            # logger.info("[Train][Epoch {}/{}][Avg]{}".format(
-            #     epoch_id, self.config["Global"]["epochs"], metric_msg))
-            # self.output_info.clear()
+            if self.use_dali:
+                self.train_dataloader.reset()
+            metric_msg = ", ".join(
+                [self.output_info[key].avg_info for key in self.output_info])
+            logger.info("[Train][Epoch {}/{}][Avg]{}".format(
+                epoch_id, self.config["Global"]["epochs"], metric_msg))
+            self.output_info.clear()
 
             # eval model and save model if possible
-            # start_eval_epoch = self.config["Global"].get("start_eval_epoch",
-            #                                              0) - 1
-            # if self.config["Global"][
-            #         "eval_during_train"] and epoch_id % self.config["Global"][
-            #             "eval_interval"] == 0 and epoch_id > start_eval_epoch:
-            #     acc = self.eval(epoch_id)
+            start_eval_epoch = self.config["Global"].get("start_eval_epoch",
+                                                         0) - 1
+            if self.config["Global"][
+                    "eval_during_train"] and epoch_id % self.config["Global"][
+                        "eval_interval"] == 0 and epoch_id > start_eval_epoch:
+                acc = self.eval(epoch_id)
 
-        # step lr (by epoch) according to given metric, such as acc
-        # for i in range(len(self.lr_sch)):
-        #     if getattr(self.lr_sch[i], "by_epoch", False) and \
-        #             type_name(self.lr_sch[i]) == "ReduceOnPlateau":
-        #         self.lr_sch[i].step(acc)
+                # step lr (by epoch) according to given metric, such as acc
+                for i in range(len(self.lr_sch)):
+                    if getattr(self.lr_sch[i], "by_epoch", False) and \
+                            type_name(self.lr_sch[i]) == "ReduceOnPlateau":
+                        self.lr_sch[i].step(acc)
 
-        # if acc > best_metric["metric"]:
-        #     best_metric["metric"] = acc
-        #     best_metric["epoch"] = epoch_id
-        #     save_load.save_model(
-        #         self.model,
-        #         self.optimizer,
-        #         best_metric,
-        #         self.output_dir,
-        #         ema=ema_module,
-        #         model_name=self.config["Arch"]["name"],
-        #         prefix="best_model",
-        #         loss=self.train_loss_func,
-        #         save_student_model=True)
-        # logger.info("[Eval][Epoch {}][best metric: {}]".format(
-        #     epoch_id, best_metric["metric"]))
-        # logger.scaler(
-        #     name="eval_acc",
-        #     value=acc,
-        #     step=epoch_id,
-        #     writer=self.vdl_writer)
+                if acc > best_metric["metric"]:
+                    best_metric["metric"] = acc
+                    best_metric["epoch"] = epoch_id
+                    save_load.save_model(
+                        self.model,
+                        self.optimizer,
+                        best_metric,
+                        self.output_dir,
+                        ema=ema_module,
+                        model_name=self.config["Arch"]["name"],
+                        prefix="best_model",
+                        loss=self.train_loss_func,
+                        save_student_model=True)
+                logger.info("[Eval][Epoch {}][best metric: {}]".format(
+                    epoch_id, best_metric["metric"]))
+                logger.scaler(
+                    name="eval_acc",
+                    value=acc,
+                    step=epoch_id,
+                    writer=self.vdl_writer)
 
-        # self.model.train()
+                self.model.train()
 
-        # if self.ema:
-        #     ori_model, self.model = self.model, ema_module
-        #     acc_ema = self.eval(epoch_id)
-        #     self.model = ori_model
-        #     ema_module.eval()
+                if self.ema:
+                    ori_model, self.model = self.model, ema_module
+                    acc_ema = self.eval(epoch_id)
+                    self.model = ori_model
+                    ema_module.eval()
 
-        #     if acc_ema > best_metric_ema:
-        #         best_metric_ema = acc_ema
-        #         save_load.save_model(
-        #             self.model,
-        #             self.optimizer,
-        #             {"metric": acc_ema,
-        #              "epoch": epoch_id},
-        #             self.output_dir,
-        #             ema=ema_module,
-        #             model_name=self.config["Arch"]["name"],
-        #             prefix="best_model_ema",
-        #             loss=self.train_loss_func)
-        #     logger.info("[Eval][Epoch {}][best metric ema: {}]".format(
-        #         epoch_id, best_metric_ema))
-        #     logger.scaler(
-        #         name="eval_acc_ema",
-        #         value=acc_ema,
-        #         step=epoch_id,
-        #         writer=self.vdl_writer)
+                    if acc_ema > best_metric_ema:
+                        best_metric_ema = acc_ema
+                        save_load.save_model(
+                            self.model,
+                            self.optimizer,
+                            {"metric": acc_ema,
+                             "epoch": epoch_id},
+                            self.output_dir,
+                            ema=ema_module,
+                            model_name=self.config["Arch"]["name"],
+                            prefix="best_model_ema",
+                            loss=self.train_loss_func)
+                    logger.info("[Eval][Epoch {}][best metric ema: {}]".format(
+                        epoch_id, best_metric_ema))
+                    logger.scaler(
+                        name="eval_acc_ema",
+                        value=acc_ema,
+                        step=epoch_id,
+                        writer=self.vdl_writer)
 
-        # save model
-        # if save_interval > 0 and epoch_id % save_interval == 0:
-        #     save_load.save_model(
-        #         self.model,
-        #         self.optimizer, {"metric": acc,
-        #                          "epoch": epoch_id},
-        #         self.output_dir,
-        #         ema=ema_module,
-        #         model_name=self.config["Arch"]["name"],
-        #         prefix="epoch_{}".format(epoch_id),
-        #         loss=self.train_loss_func)
-        # save the latest model
-        # save_load.save_model(
-        #     self.model,
-        #     self.optimizer, {"metric": acc,
-        #                      "epoch": epoch_id},
-        #     self.output_dir,
-        #     ema=ema_module,
-        #     model_name=self.config["Arch"]["name"],
-        #     prefix="latest",
-        #     loss=self.train_loss_func)
+            # save model
+            if save_interval > 0 and epoch_id % save_interval == 0:
+                save_load.save_model(
+                    self.model,
+                    self.optimizer, {"metric": acc,
+                                     "epoch": epoch_id},
+                    self.output_dir,
+                    ema=ema_module,
+                    model_name=self.config["Arch"]["name"],
+                    prefix="epoch_{}".format(epoch_id),
+                    loss=self.train_loss_func)
+            # save the latest model
+            save_load.save_model(
+                self.model,
+                self.optimizer, {"metric": acc,
+                                 "epoch": epoch_id},
+                self.output_dir,
+                ema=ema_module,
+                model_name=self.config["Arch"]["name"],
+                prefix="latest",
+                loss=self.train_loss_func)
 
         if self.vdl_writer is not None:
             self.vdl_writer.close()

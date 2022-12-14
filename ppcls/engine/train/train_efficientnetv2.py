@@ -29,6 +29,7 @@ def train_epoch_efficientnetv2(engine, epoch_id, print_batch_step):
     # for progressive training
     num_stage = 4
     ratio_list = [(i + 1) / num_stage for i in range(num_stage)]
+
     ram_list = np.linspace(5, 10, num_stage)
     # dropout_rate_list = np.linspace(0.0, 0.2, num_stage)
     stones = [
@@ -49,9 +50,12 @@ def train_epoch_efficientnetv2(engine, epoch_id, print_batch_step):
             "RandCropImage"]["size"] = image_size_list[stage_id]
         engine.config["DataLoader"]["Train"]["dataset"]["transform_ops"][3][
             "RandAugment"]["magnitude"] = ram_list[stage_id]
-        engine.train_dataloader = build_dataloader(engine.config["DataLoader"],
-                                                   "Train", engine.device,
-                                                   engine.use_dali)
+        engine.train_dataloader = build_dataloader(
+            engine.config["DataLoader"],
+            "Train",
+            engine.device,
+            engine.use_dali,
+            seed=epoch_id)
         engine.last_stage = stage_id
     logger.info(
         f"Stage: {stage_id} ram: {ram_list[stage_id]} isize: {image_size_list[stage_id]}"
@@ -63,10 +67,10 @@ def train_epoch_efficientnetv2(engine, epoch_id, print_batch_step):
     for iter_id in range(engine.iter_per_epoch):
         # fetch data batch from dataloader
         try:
-            batch = engine.train_dataloader_iter.next()
+            batch = next(engine.train_dataloader_iter)
         except Exception:
             engine.train_dataloader_iter = iter(engine.train_dataloader)
-            batch = engine.train_dataloader_iter.next()
+            batch = next(engine.train_dataloader_iter)
 
         profiler.add_profiler_step(engine.config["profiler_options"])
         if iter_id == 5:
@@ -77,6 +81,7 @@ def train_epoch_efficientnetv2(engine, epoch_id, print_batch_step):
         batch_size = batch[0].shape[0]
         if not engine.config["Global"].get("use_multilabel", False):
             batch[1] = batch[1].reshape([batch_size, -1])
+
         engine.global_step += 1
 
         # image input

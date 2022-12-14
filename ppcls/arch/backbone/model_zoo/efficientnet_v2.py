@@ -21,10 +21,11 @@ import re
 import numpy as np
 import paddle
 import paddle.nn as nn
+from paddle import ParamAttr
+from paddle.regularizer import L2Decay
 import paddle.nn.functional as F
 from paddle.nn.initializer import Constant, Normal, Uniform
 from ppcls.utils.config import AttrDict
-
 from ....utils.save_load import (load_dygraph_pretrain,
                                  load_dygraph_pretrain_from_url)
 
@@ -99,7 +100,8 @@ class Conv2ds(nn.Layer):
             stride=stride,
             padding=padding,
             weight_attr=None,
-            bias_attr=use_bias)
+            bias_attr=use_bias
+            if not use_bias else ParamAttr(regularizer=L2Decay(0.0)))
 
     def forward(self, inputs):
         x = self._conv(inputs)
@@ -234,7 +236,7 @@ v2_xl_block = [  # only for 21k pretraining.
 efficientnetv2_params = {
     # (block, width, depth, train_size, eval_size, dropout, randaug, mixup, aug)
     'efficientnetv2-s':  # 83.9% @ 22M
-    (v2_s_block, 1.0, 1.0, 300, 384, 0.2, 10, 0, 'randaug'),
+    (v2_s_block, 1.0, 1.0, 300, 384, 0.2, 10, 0.2, 'randaug'),
     'efficientnetv2-m':  # 85.2% @ 54M
     (v2_m_block, 1.0, 1.0, 384, 480, 0.3, 15, 0.2, 'randaug'),
     'efficientnetv2-l':  # 85.7% @ 120M
@@ -443,8 +445,12 @@ class MBConvBlock(nn.Layer):
                 use_bias=False,
                 cur_stage=cur_stage,
                 padding_type=padding_type)
-            self._norm0 = nn.BatchNorm2D(expand_filters, self.bn_momentum,
-                                         self.bn_epsilon)
+            self._norm0 = nn.BatchNorm2D(
+                expand_filters,
+                self.bn_momentum,
+                self.bn_epsilon,
+                weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+                bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
 
         # Depth-wise convolution phase. Called if not using fused convolutions.
         self._depthwise_conv = Conv2ds(
@@ -458,8 +464,12 @@ class MBConvBlock(nn.Layer):
             cur_stage=cur_stage,
             padding_type=padding_type)
 
-        self._norm1 = nn.BatchNorm2D(expand_filters, self.bn_momentum,
-                                     self.bn_epsilon)
+        self._norm1 = nn.BatchNorm2D(
+            expand_filters,
+            self.bn_momentum,
+            self.bn_epsilon,
+            weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+            bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
 
         if self._has_se:
             num_reduced_filters = max(1,
@@ -479,8 +489,12 @@ class MBConvBlock(nn.Layer):
             use_bias=False,
             cur_stage=cur_stage,
             padding_type=padding_type)
-        self._norm2 = nn.BatchNorm2D(self.output_filters, self.bn_momentum,
-                                     self.bn_epsilon)
+        self._norm2 = nn.BatchNorm2D(
+            self.output_filters,
+            self.bn_momentum,
+            self.bn_epsilon,
+            weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+            bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
         self.drop_out = nn.Dropout(self.conv_dropout)
 
     def residual(self, inputs, x, survival_prob):
@@ -558,8 +572,12 @@ class FusedMBConvBlock(MBConvBlock):
                 use_bias=False,
                 cur_stage=cur_stage,
                 padding_type=padding_type)
-            self._norm0 = nn.BatchNorm2D(expand_filters, self.bn_momentum,
-                                         self.bn_epsilon)
+            self._norm0 = nn.BatchNorm2D(
+                expand_filters,
+                self.bn_momentum,
+                self.bn_epsilon,
+                weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+                bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
 
         if self._has_se:
             num_reduced_filters = max(1,
@@ -580,8 +598,12 @@ class FusedMBConvBlock(MBConvBlock):
             use_bias=False,
             cur_stage=cur_stage,
             padding_type=padding_type)
-        self._norm1 = nn.BatchNorm2D(self.output_filters, self.bn_momentum,
-                                     self.bn_epsilon)
+        self._norm1 = nn.BatchNorm2D(
+            self.output_filters,
+            self.bn_momentum,
+            self.bn_epsilon,
+            weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+            bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
         self.drop_out = nn.Dropout(conv_dropout)
 
     def forward(self, inputs, survival_prob=None):
@@ -632,7 +654,11 @@ class Stem(nn.Layer):
             padding_type=padding_type)
         self._norm = nn.BatchNorm2D(
             round_filters(stem_filters, width_coefficient, depth_divisor,
-                          min_depth, skip), bn_momentum, bn_epsilon)
+                          min_depth, skip),
+            bn_momentum,
+            bn_epsilon,
+            weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+            bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
         self._act = activation_fn(act_fn)
 
     def forward(self, inputs):
@@ -670,8 +696,11 @@ class Head(nn.Layer):
             bias_attr=False)
         self._norm = nn.BatchNorm2D(
             round_filters(self.feature_size or 1280, width_coefficient,
-                          depth_divisor, min_depth, skip), self.bn_momentum,
-            self.bn_epsilon)
+                          depth_divisor, min_depth, skip),
+            self.bn_momentum,
+            self.bn_epsilon,
+            weight_attr=ParamAttr(regularizer=L2Decay(0.0)),
+            bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
         self._act = activation_fn(act_fn)
 
         self._avg_pooling = nn.AdaptiveAvgPool2D(output_size=1)
@@ -795,7 +824,10 @@ class EfficientNetV2(nn.Layer):
 
         # top part for classification
         if include_top and class_num:
-            self._fc = nn.Linear(self.mconfig.feature_size, class_num)
+            self._fc = nn.Linear(
+                self.mconfig.feature_size,
+                class_num,
+                bias_attr=ParamAttr(regularizer=L2Decay(0.0)))
         else:
             self._fc = None
 

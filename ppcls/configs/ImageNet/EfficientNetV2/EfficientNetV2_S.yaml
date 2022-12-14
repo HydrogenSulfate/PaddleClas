@@ -4,7 +4,7 @@ Global:
   pretrained_model: null
   output_dir: ./output/
   device: gpu
-  save_interval: 1
+  save_interval: 100
   eval_during_train: True
   eval_interval: 1
   epochs: 350
@@ -42,10 +42,11 @@ Loss:
 Optimizer:
   name: Momentum
   momentum: 0.9
-  no_weight_decay_name: .bias bn
   lr:
     name: Cosine
-    learning_rate: 0.65
+    # learning_rate: 0.325 # 4x128bs
+    learning_rate: 0.65 # 8x128bs
+    # learning_rate: 1.3 # 8x256bs
     warmup_epoch: 5
   regularizer:
     name: L2
@@ -78,7 +79,7 @@ DataLoader:
 
     sampler:
       name: DistributedBatchSampler
-      batch_size: 256
+      batch_size: 128
       drop_last: True
       shuffle: True
     loader:
@@ -109,7 +110,7 @@ DataLoader:
       drop_last: False
       shuffle: False
     loader:
-      num_workers: 4
+      num_workers: 8
       use_shared_memory: True
 
 Infer:
