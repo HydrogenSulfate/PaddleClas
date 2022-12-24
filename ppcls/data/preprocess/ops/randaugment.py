@@ -73,17 +73,17 @@ class RandAugment(object):
         self.magnitude = magnitude
         self.max_level = 10
 
-        abso_level = self.magnitude / self.max_level
+        abso_level = self.magnitude / self.max_level  # [5.0~10.0/10.0]=[0.5, 1.0]
         self.level_map = {
             "shearX": 0.3 * abso_level,
             "shearY": 0.3 * abso_level,
-            "translateX": 100.0 / 331 * abso_level,
-            "translateY": 100.0 / 331 * abso_level,
+            "translateX": 100.0 * abso_level,
+            "translateY": 100.0 * abso_level,
             "rotate": 30 * abso_level,
             "color": 1.8 * abso_level + 0.1,
             "posterize": int(4.0 * abso_level),
-            "solarize": 256.0 * abso_level,
-            "solarize_add": 110.0 * abso_level,
+            "solarize": int(256.0 * abso_level),
+            "solarize_add": int(110.0 * abso_level),
             "contrast": 1.8 * abso_level + 0.1,
             "sharpness": 1.8 * abso_level + 0.1,
             "brightness": 1.8 * abso_level + 0.1,
@@ -108,27 +108,28 @@ class RandAugment(object):
                 img.size,
                 Image.AFFINE,
                 (1, magnitude * rnd_ch_op([-1, 1]), 0, 0, 1, 0),
-                Image.BICUBIC,
+                Image.NEAREST,
                 fillcolor=fillcolor),
             "shearY": lambda img, magnitude: img.transform(
                 img.size,
                 Image.AFFINE,
                 (1, 0, 0, magnitude * rnd_ch_op([-1, 1]), 1, 0),
-                Image.BICUBIC,
+                Image.NEAREST,
                 fillcolor=fillcolor),
             "translateX": lambda img, magnitude: img.transform(
                 img.size,
                 Image.AFFINE,
-                (1, 0, magnitude * img.size[0] * rnd_ch_op([-1, 1]), 0, 1, 0),
+                (1, 0, magnitude * rnd_ch_op([-1, 1]), 0, 1, 0),
+                Image.NEAREST,
                 fillcolor=fillcolor),
             "translateY": lambda img, magnitude: img.transform(
                 img.size,
                 Image.AFFINE,
-                (1, 0, 0, 0, 1, magnitude * img.size[1] * rnd_ch_op([-1, 1])),
+                (1, 0, 0, 0, 1, magnitude * rnd_ch_op([-1, 1])),
+                Image.NEAREST,
                 fillcolor=fillcolor),
             "rotate": lambda img, magnitude: rotate_with_fill(img, magnitude * rnd_ch_op([-1, 1])),
-            "color": lambda img, magnitude: ImageEnhance.Color(img).enhance(
-                1 + magnitude),
+            "color": lambda img, magnitude: ImageEnhance.Color(img).enhance(magnitude),
             "posterize": lambda img, magnitude:
                 ImageOps.posterize(img, magnitude),
             "solarize": lambda img, magnitude:
@@ -136,24 +137,21 @@ class RandAugment(object):
             "solarize_add": lambda img, magnitude:
                 solarize_add(img, magnitude),
             "contrast": lambda img, magnitude:
-                ImageEnhance.Contrast(img).enhance(
-                    1 + magnitude),
+                ImageEnhance.Contrast(img).enhance(magnitude),
             "sharpness": lambda img, magnitude:
-                ImageEnhance.Sharpness(img).enhance(
-                    1 + magnitude),
+                ImageEnhance.Sharpness(img).enhance(magnitude),
             "brightness": lambda img, magnitude:
-                ImageEnhance.Brightness(img).enhance(
-                    1 + magnitude),
-            "autocontrast": lambda img, magnitude:
+                ImageEnhance.Brightness(img).enhance(magnitude),
+            "autocontrast": lambda img, _:
                 ImageOps.autocontrast(img),
-            "equalize": lambda img, magnitude: ImageOps.equalize(img),
-            "invert": lambda img, magnitude: ImageOps.invert(img),
+            "equalize": lambda img, _: ImageOps.equalize(img),
+            "invert": lambda img, _: ImageOps.invert(img),
             "cutout": lambda img, magnitude: cutout(img, magnitude, replace=128)
         }
 
     def __call__(self, img):
         avaiable_op_names = list(self.level_map.keys())
-        for layer_num in range(self.num_layers):
+        for _ in range(self.num_layers):
             op_name = np.random.choice(avaiable_op_names)
             img = self.func[op_name](img, self.level_map[op_name])
         return img

@@ -28,6 +28,7 @@ EMA:
 Arch:
   name: EfficientNetV2_S
   class_num: 1000
+  use_sync_bn: True
 
 # loss function config for traing/eval process
 Loss:

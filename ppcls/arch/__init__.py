@@ -39,6 +39,7 @@ def build_model(config, mode="train"):
     mod = importlib.import_module(__name__)
     arch = getattr(mod, model_type)(**arch_config)
     if use_sync_bn:
+        logger.info("Using SyncBatchNorm...")
         arch = nn.SyncBatchNorm.convert_sync_batchnorm(arch)
 
     if isinstance(arch, TheseusLayer):

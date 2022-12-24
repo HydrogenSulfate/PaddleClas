@@ -14,6 +14,7 @@
 from __future__ import absolute_import, division, print_function
 
 import time
+import cv2
 
 import numpy as np
 import paddle
@@ -26,26 +27,25 @@ from ppcls.utils import logger, profiler
 def train_epoch_efficientnetv2(engine, epoch_id, print_batch_step):
     tic = time.time()
 
-    # for progressive training
+    # NOTE: Build hyper-parameters for different training stage in progressive training
     num_stage = 4
     ratio_list = [(i + 1) / num_stage for i in range(num_stage)]
-
     ram_list = np.linspace(5, 10, num_stage)
     # dropout_rate_list = np.linspace(0.0, 0.2, num_stage)
     stones = [
         int(engine.config["Global"]["epochs"] * ratio_list[i])
         for i in range(num_stage)
-    ]  # [87, 175, 262, 350]
+    ]  # [87epoch, 175epoch, 262epoch, 350epoch]
     image_size_list = [
         int(128 + (300 - 128) * ratio_list[i]) for i in range(num_stage)
-    ]
+    ]  # [171px, 214px, 257px, 300px]
     stage_id = 0
     for i in range(num_stage):
         if epoch_id > stones[i]:
             stage_id = i + 1
-            break
+
+    # NOTE: Adjust training hyper-parameters at runtime in progressive training
     if not hasattr(engine, 'last_stage') or engine.last_stage < stage_id:
-        logger.info(f"change stage to {stage_id}")
         engine.config["DataLoader"]["Train"]["dataset"]["transform_ops"][1][
             "RandCropImage"]["size"] = image_size_list[stage_id]
         engine.config["DataLoader"]["Train"]["dataset"]["transform_ops"][3][
@@ -56,9 +56,11 @@ def train_epoch_efficientnetv2(engine, epoch_id, print_batch_step):
             engine.device,
             engine.use_dali,
             seed=epoch_id)
+        engine.train_dataloader_iter = iter(engine.train_dataloader)
         engine.last_stage = stage_id
+
     logger.info(
-        f"Stage: {stage_id} ram: {ram_list[stage_id]} isize: {image_size_list[stage_id]}"
+        f"Training stage: [{stage_id+1}/{num_stage}](random_aug_magnitude={ram_list[stage_id]}, train_image_size={image_size_list[stage_id]})"
     )
 
     if not hasattr(engine, "train_dataloader_iter"):

@@ -12,4 +12,3 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # 8卡训练
 python3.7 -m paddle.distributed.launch --gpus="0,1,2,3,4,5,6,7" tools/train.py -c ppcls/configs/ImageNet/EfficientNetV2/EfficientNetV2_S.yaml
-# python3.7 -m paddle.distributed.launch --gpus="0,1,2,3,4,5,6,7" tools/train.py -c ppcls/configs/ImageNet/EfficientNet/EfficientNetB0.yaml
